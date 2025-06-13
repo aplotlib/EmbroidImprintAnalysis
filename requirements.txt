@@ -1,1 +1,19 @@
+# Core dependencies
+streamlit>=1.28.0
+pandas>=2.0.0
+numpy>=1.24.0
 
+PyPDF2
+
+# For AI module (enhanced_ai_analysis.py)
+requests>=2.31.0
+
+# Excel file support
+openpyxl>=3.1.0
+xlsxwriter>=3.1.0
+
+# Optional but recommended for better compatibility
+python-dateutil>=2.8.2
+
+openai
+pdfplumber
