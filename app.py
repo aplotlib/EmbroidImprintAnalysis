@@ -59,7 +59,7 @@ def fix_column_types(df):
                         # Try to convert string to number
                         try:
                             # Clean common number formats
-                            cleaned = str(val).replace(',', '').replace('
+                            cleaned = str(val).replace(',', '').replace('%', '').strip()
 
 # Custom CSS for minimalist design
 st.markdown("""
