@@ -448,11 +448,20 @@ def process_summary_format(excel_file, file_content, use_ai=False):
                 # Calculate Pareto analysis
                 if len(df_standard) > 0 and df_standard['Qty Delivered'].sum() > 0:
                     df_standard['Cumulative %'] = (df_standard['Qty Delivered'].cumsum() / df_standard['Qty Delivered'].sum() * 100).round(1)
-                    df_standard['Revenue Tier'] = pd.cut(
-                        df_standard['Cumulative %'], 
-                        bins=[0, 80, 95, 100], 
-                        labels=['A (Top 80%)', 'B (Next 15%)', 'C (Bottom 5%)']
-                    )
+                    
+                    # Create Revenue Tier with proper handling
+                    try:
+                        df_standard['Revenue Tier'] = pd.cut(
+                            df_standard['Cumulative %'], 
+                            bins=[0, 80, 95, 100], 
+                            labels=['A (Top 80%)', 'B (Next 15%)', 'C (Bottom 5%)'],
+                            include_lowest=True
+                        )
+                        # Convert to string to avoid serialization issues
+                        df_standard['Revenue Tier'] = df_standard['Revenue Tier'].astype(str)
+                    except Exception as e:
+                        # Fallback if categorization fails
+                        df_standard['Revenue Tier'] = 'Uncategorized'
                 
                 # Fix column types to prevent Arrow errors
                 df_standard = fix_column_types(df_standard)
@@ -640,11 +649,20 @@ def process_customer_sku_data(file_content, filename, use_ai=False):
                         
                         # Calculate Pareto (80/20 rule)
                         result_df['Cumulative %'] = (result_df['Qty Delivered'].cumsum() / result_df['Qty Delivered'].sum() * 100).round(1)
-                        result_df['Revenue Tier'] = pd.cut(
-                            result_df['Cumulative %'], 
-                            bins=[0, 80, 95, 100], 
-                            labels=['A (Top 80%)', 'B (Next 15%)', 'C (Bottom 5%)']
-                        )
+                        
+                        # Create Revenue Tier with proper handling
+                        try:
+                            result_df['Revenue Tier'] = pd.cut(
+                                result_df['Cumulative %'], 
+                                bins=[0, 80, 95, 100], 
+                                labels=['A (Top 80%)', 'B (Next 15%)', 'C (Bottom 5%)'],
+                                include_lowest=True
+                            )
+                            # Convert to string to avoid serialization issues
+                            result_df['Revenue Tier'] = result_df['Revenue Tier'].astype(str)
+                        except Exception as e:
+                            # Fallback if categorization fails
+                            result_df['Revenue Tier'] = 'Uncategorized'
                         
                         # Fix column types
                         result_df = fix_column_types(result_df)
@@ -686,6 +704,9 @@ def process_customer_sku_data(file_content, filename, use_ai=False):
         processing_stats['avg_order_size'] = round(
             processing_stats['total_quantity'] / processing_stats['total_customers'], 1
         )
+    
+    # Validate and clean results before returning
+    results = validate_results(results)
     
     # Clean up memory for large files
     gc.collect()
