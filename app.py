@@ -87,12 +87,25 @@ def detect_file_format(excel_file):
     if any('Sales Analysis' in sheet for sheet in sheet_names):
         return 'sales_analysis'
     
-    # Check for summary format
+    # Check for summary format - enhanced detection
     elif any('Top Customers' in sheet for sheet in sheet_names):
         return 'summary'
     
+    # Check filename patterns if passed
+    filename = getattr(excel_file, 'io', None)
+    if filename and hasattr(filename, 'name'):
+        filename_lower = filename.name.lower()
+        if 'top customer' in filename_lower or 'top volume' in filename_lower:
+            return 'summary'
+    
+    # Check for sheets with embroid/imprint in name
+    elif any(any(keyword in sheet.lower() for keyword in ['embroid', 'imprint', 'embroider']) 
+             for sheet in sheet_names):
+        return 'summary'  # Treat as summary format
+    
     # Check for generic sheets that might contain customer data
-    elif any(sheet.lower() in ['imprinting', 'embroidery', 'customers', 'data'] for sheet in sheet_names):
+    elif any(sheet.lower() in ['imprinting', 'embroidery', 'customers', 'data', 'sheet1'] 
+             for sheet in sheet_names):
         return 'generic'
     
     return 'unknown'
@@ -111,8 +124,15 @@ def process_summary_format(excel_file, file_content):
         'empty_sheets': []
     }
     
+    # Check if we need to assign categories based on filename
+    filename = getattr(excel_file, 'filename', '')
+    has_both_categories = False
+    if filename:
+        filename_lower = filename.lower()
+        has_both_categories = 'embroid' in filename_lower and 'imprint' in filename_lower
+    
     # Process each sheet
-    for sheet_name in excel_file.sheet_names:
+    for sheet_idx, sheet_name in enumerate(excel_file.sheet_names):
         try:
             df = pd.read_excel(io.BytesIO(file_content), sheet_name=sheet_name, engine='openpyxl')
             
@@ -134,15 +154,23 @@ def process_summary_format(excel_file, file_content):
             col_mapping = {}
             for col in df.columns:
                 col_lower = str(col).lower().strip()
-                if 'customer' in col_lower or 'company' in col_lower or 'client' in col_lower:
+                # Enhanced customer column detection
+                if 'customer' in col_lower or 'company' in col_lower or 'client' in col_lower or 'account' in col_lower:
                     col_mapping['customer'] = col
-                elif 'qty' in col_lower or 'quantity' in col_lower or 'amount' in col_lower:
-                    col_mapping['qty'] = col
-                elif 'sku' in col_lower and ('ordered' in col_lower or 'list' in col_lower):
+                # Enhanced quantity column detection
+                elif any(keyword in col_lower for keyword in ['qty', 'quantity', 'amount', 'volume', 'total', 'units']):
+                    # Make sure it's not SKU count
+                    if 'sku' not in col_lower:
+                        col_mapping['qty'] = col
+                # SKU list/ordered column
+                elif 'sku' in col_lower and any(keyword in col_lower for keyword in ['ordered', 'list', 'items', 'products']):
                     col_mapping['skus'] = col
                 elif 'sku' in col_lower and 'count' in col_lower:
                     col_mapping['sku_count'] = col
                 elif 'sku' in col_lower and col_mapping.get('skus') is None:
+                    col_mapping['skus'] = col
+                # Additional column patterns
+                elif 'product' in col_lower and 'ordered' in col_lower:
                     col_mapping['skus'] = col
             
             # If no customer column found, check first column
@@ -222,18 +250,46 @@ def process_summary_format(excel_file, file_content):
                 
                 # Determine category based on sheet name or assign generically
                 sheet_lower = sheet_name.lower()
-                if 'imprint' in sheet_lower:
+                # Enhanced category detection
+                if any(keyword in sheet_lower for keyword in ['imprint', 'imprnt', 'imp ']):
                     results['imprinting'] = df_standard
-                elif 'embroid' in sheet_lower:
+                elif any(keyword in sheet_lower for keyword in ['embroid', 'emb ', 'embro']):
                     df_standard = df_standard.rename(columns={'Customer': 'Company'})
                     results['embroidery'] = df_standard
-                else:
-                    # Assign to imprinting if empty, otherwise to embroidery
-                    if 'imprinting' not in results:
+                elif has_both_categories:
+                    # File contains both categories, assign based on sheet order or what's empty
+                    if sheet_idx == 0 or 'imprinting' not in results:
                         results['imprinting'] = df_standard
                     else:
                         df_standard = df_standard.rename(columns={'Customer': 'Company'})
                         results['embroidery'] = df_standard
+                else:
+                    # For generic sheet names (Sheet1, Sheet2, etc.)
+                    # Try to determine from any clues in the data
+                    embroid_found = False
+                    imprint_found = False
+                    
+                    # Check SKU patterns
+                    if 'SKUs Ordered' in df_standard.columns:
+                        all_skus = ' '.join(df_standard['SKUs Ordered'].astype(str))
+                        if any(keyword in all_skus.lower() for keyword in ['emb', 'embroid']):
+                            embroid_found = True
+                        if any(keyword in all_skus.lower() for keyword in ['imp', 'imprint']):
+                            imprint_found = True
+                    
+                    # Assign based on what was found
+                    if imprint_found and not embroid_found:
+                        results['imprinting'] = df_standard
+                    elif embroid_found and not imprint_found:
+                        df_standard = df_standard.rename(columns={'Customer': 'Company'})
+                        results['embroidery'] = df_standard
+                    else:
+                        # Default assignment - alternate between categories
+                        if 'imprinting' not in results:
+                            results['imprinting'] = df_standard
+                        else:
+                            df_standard = df_standard.rename(columns={'Customer': 'Company'})
+                            results['embroidery'] = df_standard
         
         except Exception as e:
             st.warning(f"Could not process sheet '{sheet_name}': {str(e)}")
@@ -251,14 +307,24 @@ def process_summary_format(excel_file, file_content):
 def process_customer_sku_data(file_content, filename):
     """
     Process Excel file with auto-format detection.
+    Enhanced to handle various file naming conventions.
     """
     # Read Excel file from bytes
     excel_file = pd.ExcelFile(io.BytesIO(file_content))
     
+    # Store filename for later use in format detection
+    excel_file.filename = filename
+    
     # Detect file format
     file_format = detect_file_format(excel_file)
     
-    if file_format == 'summary':
+    # If format is unknown, check filename patterns
+    if file_format == 'unknown' and filename:
+        filename_lower = filename.lower()
+        if any(keyword in filename_lower for keyword in ['top customer', 'top volume', 'customer list']):
+            file_format = 'summary'
+    
+    if file_format == 'summary' or file_format == 'generic':
         return process_summary_format(excel_file, file_content)
     
     # Original processing for sales analysis format
@@ -438,7 +504,8 @@ def validate_and_diagnose_file(file_content):
                 'cols': 0,
                 'has_data': False,
                 'potential_customer_col': None,
-                'potential_qty_col': None
+                'potential_qty_col': None,
+                'detected_columns': []
             }
             
             try:
@@ -453,20 +520,36 @@ def validate_and_diagnose_file(file_content):
                     if not df_clean.empty:
                         sheet_info['has_data'] = True
                         
-                        # Look for potential customer column
+                        # Enhanced column detection
                         for col in df_clean.columns:
-                            if df_clean[col].dtype == 'object':
+                            col_str = str(col).strip()
+                            col_lower = col_str.lower()
+                            
+                            # Customer column detection
+                            if any(keyword in col_lower for keyword in ['customer', 'company', 'client', 'account', 'name']):
+                                sheet_info['potential_customer_col'] = col_str
+                                sheet_info['detected_columns'].append(f"Customer: {col_str}")
+                            
+                            # Quantity column detection
+                            elif any(keyword in col_lower for keyword in ['qty', 'quantity', 'volume', 'units', 'total']):
+                                if 'sku' not in col_lower:  # Avoid SKU count columns
+                                    sheet_info['potential_qty_col'] = col_str
+                                    sheet_info['detected_columns'].append(f"Quantity: {col_str}")
+                            
+                            # SKU column detection
+                            elif 'sku' in col_lower:
+                                sheet_info['detected_columns'].append(f"SKU: {col_str}")
+                            
+                            # Additional pattern: first text column might be customer
+                            elif not sheet_info['potential_customer_col'] and df_clean[col].dtype == 'object':
                                 non_null = df_clean[col].dropna()
-                                if len(non_null) > 0:
-                                    sheet_info['potential_customer_col'] = str(col)
-                                    break
-                        
-                        # Look for potential quantity column
-                        for col in df_clean.columns:
-                            if df_clean[col].dtype in ['int64', 'float64']:
-                                if (df_clean[col] > 0).any():
-                                    sheet_info['potential_qty_col'] = str(col)
-                                    break
+                                if len(non_null) > 3:  # Has enough data
+                                    # Check if values look like company names
+                                    sample_values = non_null.head(5).astype(str)
+                                    if all(len(val) > 3 and not val.replace('.','').replace(',','').isdigit() 
+                                          for val in sample_values):
+                                        sheet_info['potential_customer_col'] = col_str
+                                        sheet_info['detected_columns'].append(f"Likely Customer: {col_str}")
                 
             except Exception as e:
                 diagnostics['issues'].append(f"Could not read sheet '{sheet_name}': {str(e)}")
@@ -492,8 +575,10 @@ def validate_and_diagnose_file(file_content):
         
         if sheets_missing_customer:
             diagnostics['recommendations'].append(f"Could not identify customer column in: {', '.join(sheets_missing_customer)}")
+            diagnostics['recommendations'].append("Ensure customer names are in a column labeled 'Customer', 'Company', or similar")
         if sheets_missing_qty:
             diagnostics['recommendations'].append(f"Could not identify quantity column in: {', '.join(sheets_missing_qty)}")
+            diagnostics['recommendations'].append("Ensure quantities are in a column labeled 'Qty', 'Quantity', 'Volume', or similar")
             
     except Exception as e:
         diagnostics['issues'].append(f"Could not read file: {str(e)}")
@@ -501,6 +586,8 @@ def validate_and_diagnose_file(file_content):
         diagnostics['recommendations'].append("Try saving the file as .xlsx format in Excel.")
     
     return diagnostics
+
+def create_visualizations(results):
     """Create clean, minimalist visualizations"""
     viz = {}
     
@@ -700,10 +787,13 @@ def main():
                             status = "✅" if sheet['has_data'] else "❌"
                             st.markdown(f"{status} **{sheet['name']}**: {sheet['rows']} rows, {sheet['cols']} columns")
                             if sheet['has_data']:
-                                if sheet['potential_customer_col']:
-                                    st.markdown(f"  - Potential customer column: `{sheet['potential_customer_col']}`")
-                                if sheet['potential_qty_col']:
-                                    st.markdown(f"  - Potential quantity column: `{sheet['potential_qty_col']}`")
+                                if sheet.get('detected_columns'):
+                                    st.markdown(f"  - Detected: {', '.join(sheet['detected_columns'])}")
+                                else:
+                                    if sheet['potential_customer_col']:
+                                        st.markdown(f"  - Potential customer column: `{sheet['potential_customer_col']}`")
+                                    if sheet['potential_qty_col']:
+                                        st.markdown(f"  - Potential quantity column: `{sheet['potential_qty_col']}`")
                     else:
                         st.markdown("❌ **File could not be read**")
                     
@@ -734,16 +824,38 @@ def main():
             # Show file info for transparency
             with st.expander("📄 File Detection Info", expanded=False):
                 excel_file = pd.ExcelFile(io.BytesIO(file_content))
+                excel_file.filename = uploaded_file.name  # Store filename
                 format_detected = detect_file_format(excel_file)
                 
+                st.markdown(f"**File Name:** {uploaded_file.name}")
                 st.markdown(f"**File Format Detected:** {format_detected.replace('_', ' ').title()}")
                 st.markdown(f"**Sheets Found:** {', '.join(excel_file.sheet_names)}")
                 
-                # Show preview of first sheet
-                if excel_file.sheet_names:
-                    preview_df = pd.read_excel(io.BytesIO(file_content), sheet_name=0, nrows=5)
-                    st.markdown("**Data Preview (first 5 rows):**")
-                    st.dataframe(preview_df, use_container_width=True)
+                # Show column detection info for first sheet with data
+                for sheet_name in excel_file.sheet_names[:1]:  # Just first sheet
+                    try:
+                        df = pd.read_excel(io.BytesIO(file_content), sheet_name=sheet_name, nrows=5)
+                        if not df.empty:
+                            st.markdown(f"\n**Column Detection for '{sheet_name}':**")
+                            
+                            # Show detected columns
+                            col_info = []
+                            for col in df.columns:
+                                col_lower = str(col).lower()
+                                if any(k in col_lower for k in ['customer', 'company', 'client']):
+                                    col_info.append(f"- `{col}` → Customer column")
+                                elif any(k in col_lower for k in ['qty', 'quantity', 'volume']):
+                                    col_info.append(f"- `{col}` → Quantity column")
+                                elif 'sku' in col_lower:
+                                    col_info.append(f"- `{col}` → SKU column")
+                            
+                            if col_info:
+                                st.markdown('\n'.join(col_info))
+                            
+                            st.markdown("\n**Data Preview (first 5 rows):**")
+                            st.dataframe(df, use_container_width=True)
+                    except:
+                        pass
             
             # Success message
             st.success(f"✓ Processed {stats['total_customers']} customers across {len(stats['total_skus'])} unique SKUs")
@@ -920,10 +1032,13 @@ def main():
                 st.markdown("""
                 <div class="info-box">
                 <strong>Troubleshooting:</strong><br>
+                • <b>Top Customer files</b>: Files named like "Imp_Embroid Top Customers All Time.xlsx"<br>
+                • <b>Volume Customer files</b>: Files named like "Imprint_Embroid top volume customers SKU.xlsx"<br>
+                • <b>Summary format</b>: Columns for Customer/Company, Qty Delivered, SKUs Ordered<br>
                 • <b>Sales Analysis format</b>: Sheets named 'Imprinting/Embroidery - Sales Analysis'<br>
-                • <b>Summary format</b>: Columns for Customer, Qty Delivered, SKUs Ordered<br>
                 • <b>Generic format</b>: Any sheet with customer and quantity columns<br>
                 • Ensure the file is not password protected<br>
+                • Column names are flexible: Customer/Company/Client, Qty/Quantity/Volume, etc.<br>
                 • Try saving in .xlsx format if using .xls
                 </div>
                 """, unsafe_allow_html=True)
@@ -969,41 +1084,54 @@ def main():
             - Quantities in column H
             - Data starting from row 5
             
-            **Format 2: Customer Summary**
+            **Format 2: Customer Summary / Top Customers**
+            - Files like: "Imp_Embroid Top Customers All Time.xlsx"
+            - Files like: "Imprint_Embroid top volume customers SKU.xlsx"
             - Pre-processed customer data
             - Columns: Customer/Company, Qty Delivered, SKUs Ordered
-            - Any sheet name containing 'Top Customers'
+            - Any sheet name containing 'Top Customers', 'Embroid', or 'Imprint'
             
             **Format 3: Generic Format**
             - Any Excel sheet with:
-                - Customer or Company column
-                - Quantity or Qty column
+                - Customer, Company, Client, or Account column
+                - Quantity, Qty, Volume, Units, or Total column
                 - Optional: SKU information
             
-            The tool will automatically detect your file format!
+            The tool will automatically detect your file format and extract:
+            - Customer rankings by volume
+            - SKU patterns and popular products
+            - Pareto analysis (80/20 rule)
+            - Revenue tier classification (A/B/C)
             """)
         
         # Generate sample file
         with st.expander("💾 Generate Sample File"):
             if st.button("Download Sample Excel File"):
-                sample_data = {
+                # Create two sample sheets matching user's format
+                sample_data_imp = {
                     'Customer': ['ABC Company', 'XYZ Corp', 'Test Inc', 'Demo LLC', 'Sample Co'],
                     'Qty Delivered': [500, 350, 200, 150, 100],
                     'SKUs Ordered': ['SKU001, SKU002', 'SKU001', 'SKU003, SKU004, SKU005', 'SKU002', 'SKU001, SKU003'],
                     'SKU Count': [2, 1, 3, 1, 2]
                 }
-                sample_df = pd.DataFrame(sample_data)
+                sample_data_emb = {
+                    'Company': ['Fashion Brand A', 'Retail Chain B', 'Sports Team C', 'Corporate D', 'School E'],
+                    'Qty Delivered': [800, 600, 400, 300, 200],
+                    'SKUs Ordered': ['EMB-101, EMB-102', 'EMB-101', 'EMB-201, EMB-202', 'EMB-301', 'EMB-101, EMB-201'],
+                    'SKU Count': [2, 1, 2, 1, 2]
+                }
                 
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    sample_df.to_excel(writer, sheet_name='Imprinting Top Customers', index=False)
-                    sample_df.to_excel(writer, sheet_name='Embroidery Top Customers', index=False)
+                    # Create sheets matching user's naming patterns
+                    pd.DataFrame(sample_data_imp).to_excel(writer, sheet_name='Imp Top Customers', index=False)
+                    pd.DataFrame(sample_data_emb).to_excel(writer, sheet_name='Embroid Top Customers', index=False)
                 
                 output.seek(0)
                 st.download_button(
                     label="📥 Download Sample File",
                     data=output,
-                    file_name="sample_customer_data.xlsx",
+                    file_name="Imp_Embroid_Top_Customers_Sample.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
