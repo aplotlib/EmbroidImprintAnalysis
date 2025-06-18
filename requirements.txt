@@ -3,18 +3,15 @@ streamlit>=1.28.0
 pandas>=2.0.0
 numpy>=1.24.0
 
-PyPDF2
+# Visualization
+plotly>=5.14.0
 
-# For AI module (enhanced_ai_analysis.py)
-requests>=2.31.0
-
-# Excel file support
+# Excel file support with better performance
 openpyxl>=3.1.0
 xlsxwriter>=3.1.0
 
-# Optional but recommended for better compatibility
-python-dateutil>=2.8.2
+# Memory management for large files
+psutil>=5.9.0
 
-openai
-pdfplumber
-plotly
+# Optional but recommended
+python-dateutil>=2.8.2
