@@ -246,7 +246,7 @@ def validate_results(results):
                     elif isinstance(val, str):
                         # Try to convert string to number
                         try:
-                            float(val.replace(',', '').replace('
+                        float(val.replace(',', '').replace('
 
 def detect_file_format(excel_file):
     """
