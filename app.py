@@ -9,6 +9,7 @@ import gc
 import numpy as np
 import json
 import time
+import re
 
 # Configure page
 st.set_page_config(
@@ -280,34 +281,70 @@ def process_sales_analysis_format(excel_file):
     
     for sheet in excel_file.sheet_names:
         if 'Sales Analysis' in sheet:
-            df = pd.read_excel(excel_file, sheet_name=sheet)
+            try:
+                df = pd.read_excel(excel_file, sheet_name=sheet)
+                
+                # Determine category from sheet name
+                if 'Embroidery' in sheet:
+                    category = 'embroidery'
+                elif 'Imprinting' in sheet:
+                    category = 'imprinting'
+                else:
+                    category = sheet.replace('Sales Analysis', '').strip().lower()
+                
+                # Process the data
+                if not df.empty:
+                    # Check if expected columns exist
+                    if 'Sold To Customer Name' not in df.columns:
+                        # Try alternative column names
+                        customer_col = None
+                        for col in df.columns:
+                            if any(term in col.lower() for term in ['customer', 'company', 'client']):
+                                customer_col = col
+                                break
+                        
+                        if not customer_col:
+                            st.warning(f"Could not find customer column in sheet '{sheet}'")
+                            continue
+                    else:
+                        customer_col = 'Sold To Customer Name'
+                    
+                    # Similar check for quantity column
+                    qty_col = None
+                    if 'Qty Delivered' in df.columns:
+                        qty_col = 'Qty Delivered'
+                    else:
+                        for col in df.columns:
+                            if any(term in col.lower() for term in ['qty', 'quantity', 'delivered']):
+                                qty_col = col
+                                break
+                    
+                    if not qty_col:
+                        st.warning(f"Could not find quantity column in sheet '{sheet}'")
+                        continue
+                    
+                    # Group by customer
+                    customer_summary = df.groupby(customer_col).agg({
+                        qty_col: 'sum',
+                        'Item Number': lambda x: ', '.join(x.unique()[:5]) if 'Item Number' in df.columns else ''
+                    }).reset_index()
+                    
+                    customer_summary = customer_summary.rename(columns={
+                        customer_col: 'Customer',
+                        qty_col: 'Total Quantity'
+                    })
+                    
+                    if 'Item Number' in customer_summary.columns:
+                        customer_summary = customer_summary.rename(columns={'Item Number': 'Top SKUs'})
+                    
+                    # Sort by quantity
+                    customer_summary = customer_summary.sort_values('Total Quantity', ascending=False)
+                    
+                    results[category] = customer_summary
             
-            # Determine category from sheet name
-            if 'Embroidery' in sheet:
-                category = 'embroidery'
-            elif 'Imprinting' in sheet:
-                category = 'imprinting'
-            else:
-                category = sheet.replace('Sales Analysis', '').strip().lower()
-            
-            # Process the data
-            if not df.empty:
-                # Group by customer
-                customer_summary = df.groupby('Sold To Customer Name').agg({
-                    'Qty Delivered': 'sum',
-                    'Item Number': lambda x: ', '.join(x.unique()[:5])  # Top 5 SKUs
-                }).reset_index()
-                
-                customer_summary = customer_summary.rename(columns={
-                    'Sold To Customer Name': 'Customer',
-                    'Qty Delivered': 'Total Quantity',
-                    'Item Number': 'Top SKUs'
-                })
-                
-                # Sort by quantity
-                customer_summary = customer_summary.sort_values('Total Quantity', ascending=False)
-                
-                results[category] = customer_summary
+            except Exception as e:
+                st.warning(f"Error processing sheet '{sheet}': {str(e)}")
+                continue
     
     return results
 
@@ -320,6 +357,21 @@ def process_summary_format(excel_file, file_content, use_ai=False):
         'unique_skus': set(),
         'sheets_processed': []
     }
+    
+    # Check if this is the hierarchical format (SKU -> Customer)
+    if is_hierarchical_format(excel_file):
+        results = process_hierarchical_format(excel_file, file_content)
+        if results:
+            # Calculate stats from results
+            for category, df in results.items():
+                if df is not None and not df.empty:
+                    processing_stats['total_customers'] += len(df)
+                    processing_stats['total_quantity'] += df['Total Quantity'].sum()
+                    if 'SKUs' in df.columns:
+                        for sku_list in df['SKUs']:
+                            if sku_list:
+                                processing_stats['unique_skus'].update(sku_list.split(', '))
+            return results, processing_stats
     
     # Try multiple approaches to handle different formats
     approaches = [
@@ -340,6 +392,140 @@ def process_summary_format(excel_file, file_content, use_ai=False):
             continue
     
     return results, processing_stats
+
+def is_hierarchical_format(excel_file):
+    """Check if the file is in hierarchical SKU->Customer format"""
+    try:
+        # Check first sheet
+        df = pd.read_excel(excel_file, sheet_name=0, nrows=10)
+        
+        # Look for pattern: brackets in first column (SKU codes)
+        if len(df.columns) > 0:
+            first_col_values = df.iloc[:, 0].astype(str)
+            # Check if any values contain brackets [XXX]
+            has_brackets = any('[' in str(val) and ']' in str(val) for val in first_col_values)
+            
+            # Check for indented values (leading spaces)
+            has_indented = any(str(val).startswith('     ') for val in first_col_values)
+            
+            return has_brackets or has_indented
+    except:
+        pass
+    
+    return False
+
+def process_hierarchical_format(excel_file, file_content):
+    """Process hierarchical format where SKUs contain customer data"""
+    results = {}
+    
+    # Process each sheet
+    for sheet_name in excel_file.sheet_names:
+        try:
+            df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
+            
+            # Determine category from sheet name
+            category = 'imprinting' if 'imprint' in sheet_name.lower() else 'embroidery'
+            
+            # Parse the hierarchical structure
+            customer_data = parse_hierarchical_data(df)
+            
+            if customer_data:
+                # Convert to DataFrame
+                result_df = pd.DataFrame(customer_data)
+                result_df = result_df.sort_values('Total Quantity', ascending=False)
+                result_df = result_df.reset_index(drop=True)
+                
+                # Add rank
+                result_df['Rank'] = range(1, len(result_df) + 1)
+                
+                # Rename columns appropriately
+                if category == 'embroidery':
+                    result_df = result_df.rename(columns={'Customer': 'Company'})
+                
+                results[category] = result_df
+        
+        except Exception as e:
+            st.warning(f"Could not process sheet '{sheet_name}': {str(e)}")
+            continue
+    
+    return results
+
+def parse_hierarchical_data(df):
+    """Parse hierarchical SKU->Customer data structure"""
+    customer_totals = {}
+    current_sku = None
+    
+    # Find the data start row (skip headers)
+    data_start_row = 0
+    for i in range(min(10, len(df))):
+        if df.iloc[i, 0] == 'Total' or (isinstance(df.iloc[i, 0], str) and 'total' in df.iloc[i, 0].lower()):
+            data_start_row = i + 1
+            break
+    
+    # Process each row
+    for i in range(data_start_row, len(df)):
+        try:
+            first_cell = str(df.iloc[i, 0] if pd.notna(df.iloc[i, 0]) else '').strip()
+            
+            if not first_cell:
+                continue
+            
+            # Get the total from the last column
+            last_col_idx = len(df.columns) - 1
+            total_value = df.iloc[i, last_col_idx]
+            
+            # Check if this is a SKU row (contains brackets or is not indented much)
+            is_sku = '[' in first_cell and ']' in first_cell
+            
+            if is_sku:
+                # Extract SKU code
+                sku_match = re.search(r'\[([^\]]+)\]', first_cell)
+                if sku_match:
+                    current_sku = sku_match.group(1)
+            else:
+                # This should be a customer row
+                # Remove leading spaces
+                customer_name = first_cell.lstrip()
+                
+                # Skip if it looks like a subtotal or header
+                if any(skip in customer_name.lower() for skip in ['total', 'qty delivered', 'sum']):
+                    continue
+                
+                # Only process if we have a valid total
+                if pd.notna(total_value) and isinstance(total_value, (int, float)) and total_value > 0:
+                    # Clean customer name (remove contact info after comma if it's duplicate)
+                    parts = customer_name.split(',')
+                    if len(parts) == 2 and parts[0].strip() == parts[1].strip():
+                        customer_name = parts[0].strip()
+                    elif len(parts) > 1:
+                        # Keep first part as company name
+                        customer_name = parts[0].strip()
+                    
+                    # Add to customer totals
+                    if customer_name not in customer_totals:
+                        customer_totals[customer_name] = {
+                            'Customer': customer_name,
+                            'Total Quantity': 0,
+                            'SKUs': [],
+                            'SKU_List': []
+                        }
+                    
+                    customer_totals[customer_name]['Total Quantity'] += int(total_value)
+                    if current_sku and current_sku not in customer_totals[customer_name]['SKU_List']:
+                        customer_totals[customer_name]['SKU_List'].append(current_sku)
+        
+        except Exception as e:
+            continue
+    
+    # Convert to list format and create SKUs string
+    customer_list = []
+    for customer, data in customer_totals.items():
+        data['SKUs'] = ', '.join(data['SKU_List'][:5])  # Top 5 SKUs
+        data['SKU Count'] = len(data['SKU_List'])
+        del data['SKU_List']  # Remove the list version
+        customer_list.append(data)
+    
+    return customer_list
 
 def process_by_sheet_names(excel_file, processing_stats):
     """Process sheets based on their names"""
@@ -833,6 +1019,17 @@ def create_excel_output(results, stats):
             'border': 1
         })
         
+        top_10_format = workbook.add_format({
+            'bg_color': '#E8F4F8',
+            'border': 1
+        })
+        
+        top_3_formats = [
+            workbook.add_format({'bg_color': '#FFD700', 'border': 1}),  # Gold
+            workbook.add_format({'bg_color': '#C0C0C0', 'border': 1}),  # Silver
+            workbook.add_format({'bg_color': '#CD7F32', 'border': 1})   # Bronze
+        ]
+        
         # Summary sheet
         summary_data = {
             'Metric': [
@@ -840,66 +1037,158 @@ def create_excel_output(results, stats):
                 'Total Quantity Delivered',
                 'Unique SKUs',
                 'Average Order Size',
-                'Categories Analyzed'
+                'Categories Analyzed',
+                'Top Customer',
+                'Top Customer Volume',
+                'Top 10 Customers Share'
             ],
             'Value': [
                 stats.get('total_customers', 0),
                 f"{stats.get('total_quantity', 0):,.0f}",
                 len(stats.get('unique_skus', [])),
                 f"{stats.get('avg_order_size', 0):,.1f}",
-                ', '.join([cat.title() for cat in results.keys()])
+                ', '.join([cat.title() for cat in results.keys()]),
+                '',  # Will be filled below
+                '',  # Will be filled below
+                ''   # Will be filled below
             ]
         }
+        
+        # Get top customer info
+        if results:
+            for category, df in results.items():
+                if df is not None and not df.empty:
+                    top_customer = df.iloc[0]
+                    customer_col = 'Company' if 'Company' in df.columns else 'Customer'
+                    summary_data['Value'][5] = top_customer[customer_col]
+                    summary_data['Value'][6] = f"{top_customer['Total Quantity']:,.0f}"
+                    
+                    top_10_total = df.head(10)['Total Quantity'].sum()
+                    total_qty = df['Total Quantity'].sum()
+                    summary_data['Value'][7] = f"{(top_10_total/total_qty*100):.1f}%"
+                    break
         
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name='Summary', index=False)
         
         worksheet = writer.sheets['Summary']
         worksheet.set_column('A:A', 30)
-        worksheet.set_column('B:B', 20)
+        worksheet.set_column('B:B', 25)
         
         # Add header format
         for col_num, value in enumerate(summary_df.columns.values):
             worksheet.write(0, col_num, value, header_format)
         
-        # Category sheets
+        # Category sheets with ALL customers
         for category, df in results.items():
             if df is not None and not df.empty:
+                # Create a copy for export
+                export_df = df.copy()
+                
+                # Ensure we have rank column
+                if 'Rank' not in export_df.columns:
+                    export_df.insert(0, 'Rank', range(1, len(export_df) + 1))
+                
                 # Add tier classification
-                df['Tier'] = pd.cut(
-                    df.index,
-                    bins=[-1, len(df)*0.2, len(df)*0.5, len(df)],
+                export_df['Tier'] = pd.cut(
+                    export_df['Rank'],
+                    bins=[0, len(df)*0.2, len(df)*0.5, len(df)],
                     labels=['A', 'B', 'C']
                 )
                 
                 # Add percentage of total
-                df['% of Total'] = (df['Total Quantity'] / df['Total Quantity'].sum() * 100).round(2)
+                export_df['% of Total'] = (export_df['Total Quantity'] / export_df['Total Quantity'].sum() * 100).round(2)
+                
+                # Add cumulative percentage
+                export_df['Cumulative %'] = (export_df['Total Quantity'].cumsum() / export_df['Total Quantity'].sum() * 100).round(2)
                 
                 # Write to Excel
                 sheet_name = category.title()[:31]  # Excel sheet name limit
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
+                export_df.to_excel(writer, sheet_name=sheet_name, index=False)
                 
                 worksheet = writer.sheets[sheet_name]
                 
                 # Format columns
-                worksheet.set_column('A:A', 40)  # Customer column
-                worksheet.set_column('B:B', 15)  # Quantity
-                if 'Top SKUs' in df.columns:
-                    worksheet.set_column('C:C', 50)  # SKUs
+                customer_col = 'Company' if 'Company' in export_df.columns else 'Customer'
+                col_widths = {
+                    'Rank': 8,
+                    customer_col: 50,
+                    'Total Quantity': 15,
+                    'SKUs': 60,
+                    'SKU Count': 12,
+                    'Tier': 8,
+                    '% of Total': 12,
+                    'Cumulative %': 15
+                }
+                
+                for col_idx, col_name in enumerate(export_df.columns):
+                    if col_name in col_widths:
+                        worksheet.set_column(col_idx, col_idx, col_widths[col_name])
                 
                 # Add header format
-                for col_num, value in enumerate(df.columns.values):
+                for col_num, value in enumerate(export_df.columns.values):
                     worksheet.write(0, col_num, value, header_format)
                 
+                # Highlight top 10 customers
+                for row in range(1, min(11, len(export_df) + 1)):
+                    if row <= 3:
+                        # Top 3 get special colors
+                        row_format = top_3_formats[row - 1]
+                    else:
+                        # Rest of top 10
+                        row_format = top_10_format
+                    
+                    for col in range(len(export_df.columns)):
+                        worksheet.write(row, col, export_df.iloc[row-1, col], row_format)
+                
                 # Add conditional formatting for tiers
-                tier_col = df.columns.get_loc('Tier')
+                tier_col = export_df.columns.get_loc('Tier')
                 if tier_col >= 0:
-                    worksheet.conditional_format(1, tier_col, len(df), tier_col, {
+                    # Format tier A cells
+                    worksheet.conditional_format(11, tier_col, len(export_df), tier_col, {
                         'type': 'text',
                         'criteria': 'containing',
                         'value': 'A',
                         'format': workbook.add_format({'bg_color': '#90EE90'})
                     })
+        
+        # Create "All Customers Combined" sheet
+        combined_df = pd.DataFrame()
+        for category, df in results.items():
+            if df is not None and not df.empty:
+                df_copy = df.copy()
+                df_copy['Category'] = category.title()
+                # Standardize column names
+                if 'Company' in df_copy.columns:
+                    df_copy = df_copy.rename(columns={'Company': 'Customer'})
+                combined_df = pd.concat([combined_df, df_copy], ignore_index=True)
+        
+        if not combined_df.empty:
+            # Sort by total quantity
+            combined_df = combined_df.sort_values('Total Quantity', ascending=False)
+            combined_df['Overall Rank'] = range(1, len(combined_df) + 1)
+            
+            # Reorder columns
+            cols = ['Overall Rank', 'Category', 'Customer', 'Total Quantity']
+            if 'SKUs' in combined_df.columns:
+                cols.append('SKUs')
+            if 'SKU Count' in combined_df.columns:
+                cols.append('SKU Count')
+            
+            combined_df = combined_df[cols]
+            combined_df.to_excel(writer, sheet_name='All Customers Combined', index=False)
+            
+            worksheet = writer.sheets['All Customers Combined']
+            worksheet.set_column('A:A', 12)  # Rank
+            worksheet.set_column('B:B', 15)  # Category
+            worksheet.set_column('C:C', 50)  # Customer
+            worksheet.set_column('D:D', 15)  # Quantity
+            if 'SKUs' in combined_df.columns:
+                worksheet.set_column('E:E', 60)  # SKUs
+            
+            # Add header format
+            for col_num, value in enumerate(combined_df.columns.values):
+                worksheet.write(0, col_num, value, header_format)
     
     output.seek(0)
     return output
@@ -1102,16 +1391,51 @@ def main():
             st.error(f"Error processing file: {str(e)}")
             
             # Detailed error info in expander
-            with st.expander("🔍 Error Details", expanded=True):
+            with st.expander("🔍 Error Details & Troubleshooting", expanded=True):
                 st.code(str(e))
-                st.write("**Suggestions:**")
-                st.write("1. Ensure the file is a valid Excel file (.xlsx or .xls)")
+                
+                # Check if it's a column-related error
+                if 'Customer Name' in str(e) or 'column' in str(e).lower():
+                    st.write("**This appears to be a column naming issue.**")
+                    st.write("The app supports multiple file formats:")
+                    
+                    st.markdown("""
+                    **Format 1: Hierarchical Format (Your Current Format)**
+                    - SKUs are shown with brackets like `[RHB1068GRYIMP]`
+                    - Customer names are indented below each SKU
+                    - Monthly data columns with totals in the last column
+                    
+                    **Format 2: Sales Analysis Format**
+                    - Sheets named "Sales Analysis - Embroidery", etc.
+                    - Columns: `Sold To Customer Name`, `Qty Delivered`, `Item Number`
+                    
+                    **Format 3: Simple Customer Summary**
+                    - Columns: `Customer` or `Company`, quantity columns
+                    - Direct customer-to-quantity mapping
+                    """)
+                
+                st.write("\n**Suggestions:**")
+                st.write("1. Ensure your file matches one of the supported formats")
                 st.write("2. Check that the file is not password protected")
                 st.write("3. Verify the file contains data in a tabular format")
-                st.write("4. Try saving the file in a different Excel format")
+                st.write("4. Enable AI analysis for better column detection")
+                
+                # Try to show what was detected
+                try:
+                    st.write("\n**File Detection Results:**")
+                    excel_file = pd.ExcelFile(io.BytesIO(file_content))
+                    st.write(f"- Sheets found: {excel_file.sheet_names}")
+                    
+                    # Sample first sheet structure
+                    df_sample = pd.read_excel(excel_file, sheet_name=0, nrows=5)
+                    st.write(f"- Columns in first sheet: {list(df_sample.columns)}")
+                    st.write("- First few rows:")
+                    st.dataframe(df_sample)
+                except:
+                    pass
                 
                 if use_ai:
-                    st.write("5. AI analysis is enabled - check your API keys are valid")
+                    st.write("\n5. AI analysis is enabled - check your API keys are valid")
     
     else:
         # Show instructions when no file is uploaded
@@ -1182,7 +1506,7 @@ def display_category_results(category, df):
     st.markdown(f"### {category.title()} Top Customers")
     
     # Quick stats
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Customers", len(df))
     with col2:
@@ -1190,24 +1514,46 @@ def display_category_results(category, df):
     with col3:
         top_10_pct = (df.head(10)['Total Quantity'].sum() / df['Total Quantity'].sum() * 100)
         st.metric("Top 10 Share", f"{top_10_pct:.1f}%")
+    with col4:
+        if 'SKU Count' in df.columns:
+            st.metric("Unique SKUs", df['SKU Count'].sum())
     
-    # Customer table
-    st.markdown("#### Top 20 Customers")
+    # Top 10 Customers Highlight
+    st.markdown("#### 🏆 Top 10 Customers")
+    top_10_df = df.head(10).copy()
     
-    # Prepare display dataframe
-    display_df = df.head(20).copy()
-    display_df.index = range(1, len(display_df) + 1)
-    display_df.index.name = 'Rank'
+    # Style the top 10 with highlighting
+    def highlight_top_10(s):
+        if s.name < 3:  # Top 3 get gold, silver, bronze
+            colors = ['background-color: #FFD700', 'background-color: #C0C0C0', 'background-color: #CD7F32']
+            return [colors[s.name]] * len(s)
+        else:
+            return ['background-color: #E8F4F8'] * len(s)
     
-    # Format numbers
-    display_df['Total Quantity'] = display_df['Total Quantity'].apply(lambda x: f'{x:,.0f}')
+    # Display top 10 with special formatting
+    styled_top_10 = top_10_df.style.apply(highlight_top_10, axis=1)
+    st.dataframe(styled_top_10, use_container_width=True, height=400)
     
-    # Display with custom styling
-    st.dataframe(
-        display_df,
-        use_container_width=True,
-        height=400
-    )
+    # All customers table
+    with st.expander("📊 View All Customers", expanded=False):
+        st.markdown("#### Complete Customer List")
+        
+        # Add rank column if not present
+        if 'Rank' not in df.columns:
+            display_df = df.copy()
+            display_df.insert(0, 'Rank', range(1, len(display_df) + 1))
+        else:
+            display_df = df.copy()
+        
+        # Format numbers
+        display_df['Total Quantity'] = display_df['Total Quantity'].apply(lambda x: f'{x:,.0f}')
+        
+        # Display with custom styling
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            height=600
+        )
     
     # 80/20 Analysis
     total_customers = len(df)
@@ -1215,6 +1561,44 @@ def display_category_results(category, df):
     
     if customers_for_80 > 0:
         st.info(f"💡 **80/20 Analysis**: {customers_for_80} customers ({customers_for_80/total_customers*100:.1f}%) account for 80% of volume")
+    
+    # SKU Analysis if available
+    if 'SKUs' in df.columns and df['SKUs'].notna().any():
+        st.markdown("#### 📦 SKU Analysis")
+        
+        # Extract all SKUs
+        all_skus = []
+        for sku_list in df['SKUs'].dropna():
+            if sku_list:
+                all_skus.extend([sku.strip() for sku in sku_list.split(',')])
+        
+        if all_skus:
+            sku_counts = pd.Series(all_skus).value_counts().head(10)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Most Popular SKUs:**")
+                for i, (sku, count) in enumerate(sku_counts.items(), 1):
+                    st.write(f"{i}. {sku}: {count} customers")
+            
+            with col2:
+                # Create a simple bar chart for SKUs
+                fig_sku = go.Figure(data=[
+                    go.Bar(
+                        x=sku_counts.values,
+                        y=sku_counts.index,
+                        orientation='h',
+                        marker_color='#333'
+                    )
+                ])
+                fig_sku.update_layout(
+                    title="Top SKUs by Customer Count",
+                    xaxis_title="Number of Customers",
+                    yaxis_title="SKU",
+                    height=300,
+                    margin=dict(l=0, r=0, t=30, b=0)
+                )
+                st.plotly_chart(fig_sku, use_container_width=True)
 
 if __name__ == "__main__":
     main()
