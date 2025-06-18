@@ -7,8 +7,6 @@ import plotly.graph_objects as go
 from datetime import datetime
 import gc
 import numpy as np
-import json
-import time
 
 # Configure page
 st.set_page_config(
@@ -72,136 +70,12 @@ st.markdown("""
         border-radius: 0 4px 4px 0;
     }
     
-    /* AI suggestion box */
-    .ai-suggestion {
-        background: #e3f2fd;
-        border-left: 4px solid #2196F3;
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 0 4px 4px 0;
-    }
-    
     /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stDeployButton {display:none;}
 </style>
 """, unsafe_allow_html=True)
-
-# Initialize AI clients
-@st.cache_resource
-def init_ai_clients():
-    """Initialize AI clients if API keys are available"""
-    clients = {'openai': None, 'anthropic': None}
-    
-    # Try OpenAI
-    try:
-        import openai
-        if hasattr(st, 'secrets') and 'OPENAI_API_KEY' in st.secrets:
-            clients['openai'] = openai.OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
-        elif hasattr(st, 'secrets') and 'openai_api_key' in st.secrets:
-            clients['openai'] = openai.OpenAI(api_key=st.secrets['openai_api_key'])
-    except Exception as e:
-        st.warning(f"OpenAI not available: {e}")
-    
-    # Try Anthropic
-    try:
-        import anthropic
-        if hasattr(st, 'secrets') and 'ANTHROPIC_API_KEY' in st.secrets:
-            clients['anthropic'] = anthropic.Anthropic(api_key=st.secrets['ANTHROPIC_API_KEY'])
-        elif hasattr(st, 'secrets') and 'anthropic_api_key' in st.secrets:
-            clients['anthropic'] = anthropic.Anthropic(api_key=st.secrets['anthropic_api_key'])
-    except Exception as e:
-        st.warning(f"Anthropic not available: {e}")
-    
-    return clients
-
-def analyze_file_with_ai(df_sample, sheet_name, ai_clients):
-    """Use AI to analyze file structure and suggest column mappings"""
-    
-    # Prepare data sample for AI
-    sample_data = {
-        'sheet_name': sheet_name,
-        'columns': list(df_sample.columns),
-        'first_5_rows': df_sample.head(5).to_dict('records'),
-        'data_types': {col: str(df_sample[col].dtype) for col in df_sample.columns}
-    }
-    
-    prompt = f"""Analyze this Excel sheet data and identify which columns contain:
-1. Customer/Company names
-2. Quantity/Volume data
-3. SKU/Product information
-
-Sheet Name: {sheet_name}
-Columns: {sample_data['columns']}
-Sample Data:
-{json.dumps(sample_data['first_5_rows'], indent=2)[:1000]}  # Limit to 1000 chars
-
-Respond with a JSON object like:
-{{
-    "customer_column": "column_name or null",
-    "quantity_column": "column_name or null",
-    "sku_column": "column_name or null",
-    "category": "imprinting or embroidery or unknown",
-    "confidence": 0.0 to 1.0,
-    "notes": "any relevant observations"
-}}
-"""
-    
-    # Try OpenAI first
-    if ai_clients['openai']:
-        try:
-            response = ai_clients['openai'].chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are a data analyst expert at identifying column types in Excel files."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                response_format={"type": "json_object"}
-            )
-            return json.loads(response.choices[0].message.content)
-        except Exception as e:
-            st.warning(f"OpenAI analysis failed: {e}")
-    
-    # Try Anthropic
-    if ai_clients['anthropic']:
-        try:
-            response = ai_clients['anthropic'].messages.create(
-                model="claude-3-haiku-20240307",
-                messages=[{"role": "user", "content": prompt + "\n\nRespond only with valid JSON."}],
-                temperature=0.1,
-                max_tokens=500
-            )
-            # Extract JSON from response
-            text = response.content[0].text
-            # Find JSON in response
-            start = text.find('{')
-            end = text.rfind('}') + 1
-            if start >= 0 and end > start:
-                return json.loads(text[start:end])
-        except Exception as e:
-            st.warning(f"Anthropic analysis failed: {e}")
-    
-    return None
-
-def fix_column_types(df):
-    """Fix column types to prevent Arrow serialization errors"""
-    for col in df.columns:
-        # Check if column has mixed types
-        if df[col].dtype == 'object':
-            try:
-                # Try to convert to numeric first
-                numeric_vals = pd.to_numeric(df[col], errors='coerce')
-                if numeric_vals.notna().sum() > len(df) * 0.8:  # 80% numeric
-                    df[col] = numeric_vals.fillna(0)
-                else:
-                    # Ensure all values are strings
-                    df[col] = df[col].fillna('').astype(str)
-            except:
-                # Force to string if all else fails
-                df[col] = df[col].fillna('').astype(str)
-    return df
 
 def detect_file_format(excel_file):
     """
@@ -218,9 +92,9 @@ def detect_file_format(excel_file):
         return 'summary'
     
     # Check filename patterns if passed
-    filename = getattr(excel_file, 'filename', '')
-    if filename:
-        filename_lower = filename.lower()
+    filename = getattr(excel_file, 'io', None)
+    if filename and hasattr(filename, 'name'):
+        filename_lower = filename.name.lower()
         if 'top customer' in filename_lower or 'top volume' in filename_lower:
             return 'summary'
     
@@ -236,7 +110,7 @@ def detect_file_format(excel_file):
     
     return 'unknown'
 
-def process_summary_format(excel_file, file_content, use_ai=False):
+def process_summary_format(excel_file, file_content):
     """
     Process files that are already in summary format
     """
@@ -247,12 +121,8 @@ def process_summary_format(excel_file, file_content, use_ai=False):
         'total_quantity': 0,
         'avg_order_size': 0,
         'sheets_processed': 0,
-        'empty_sheets': [],
-        'ai_suggestions': []
+        'empty_sheets': []
     }
-    
-    # Initialize AI if requested
-    ai_clients = init_ai_clients() if use_ai else {'openai': None, 'anthropic': None}
     
     # Check if we need to assign categories based on filename
     filename = getattr(excel_file, 'filename', '')
@@ -280,53 +150,28 @@ def process_summary_format(excel_file, file_content, use_ai=False):
             
             processing_stats['sheets_processed'] += 1
             
-            # Use AI to analyze if enabled
-            ai_suggestion = None
-            if use_ai and (ai_clients['openai'] or ai_clients['anthropic']):
-                with st.spinner(f"🤖 AI analyzing sheet '{sheet_name}'..."):
-                    ai_suggestion = analyze_file_with_ai(df, sheet_name, ai_clients)
-                    if ai_suggestion:
-                        processing_stats['ai_suggestions'].append({
-                            'sheet': sheet_name,
-                            'suggestion': ai_suggestion
-                        })
-            
             # Detect column names (case-insensitive)
             col_mapping = {}
-            
-            # First try AI suggestions if available
-            if ai_suggestion and ai_suggestion.get('confidence', 0) > 0.7:
-                if ai_suggestion.get('customer_column') and ai_suggestion['customer_column'] in df.columns:
-                    col_mapping['customer'] = ai_suggestion['customer_column']
-                if ai_suggestion.get('quantity_column') and ai_suggestion['quantity_column'] in df.columns:
-                    col_mapping['qty'] = ai_suggestion['quantity_column']
-                if ai_suggestion.get('sku_column') and ai_suggestion['sku_column'] in df.columns:
-                    col_mapping['skus'] = ai_suggestion['sku_column']
-            
-            # Then use pattern matching for any missing columns
             for col in df.columns:
                 col_lower = str(col).lower().strip()
-                
-                # Customer column detection
-                if 'customer' not in col_mapping:
-                    if any(keyword in col_lower for keyword in ['customer', 'company', 'client', 'account', 'name']):
-                        col_mapping['customer'] = col
-                
-                # Quantity column detection
-                if 'qty' not in col_mapping:
-                    if any(keyword in col_lower for keyword in ['qty', 'quantity', 'amount', 'volume', 'total', 'units']):
-                        if 'sku' not in col_lower:  # Avoid SKU count columns
-                            col_mapping['qty'] = col
-                
-                # SKU column detection
-                if 'skus' not in col_mapping:
-                    if 'sku' in col_lower:
-                        if any(keyword in col_lower for keyword in ['ordered', 'list', 'items', 'products']):
-                            col_mapping['skus'] = col
-                        elif 'count' in col_lower:
-                            col_mapping['sku_count'] = col
-                        else:
-                            col_mapping['skus'] = col
+                # Enhanced customer column detection
+                if 'customer' in col_lower or 'company' in col_lower or 'client' in col_lower or 'account' in col_lower:
+                    col_mapping['customer'] = col
+                # Enhanced quantity column detection
+                elif any(keyword in col_lower for keyword in ['qty', 'quantity', 'amount', 'volume', 'total', 'units']):
+                    # Make sure it's not SKU count
+                    if 'sku' not in col_lower:
+                        col_mapping['qty'] = col
+                # SKU list/ordered column
+                elif 'sku' in col_lower and any(keyword in col_lower for keyword in ['ordered', 'list', 'items', 'products']):
+                    col_mapping['skus'] = col
+                elif 'sku' in col_lower and 'count' in col_lower:
+                    col_mapping['sku_count'] = col
+                elif 'sku' in col_lower and col_mapping.get('skus') is None:
+                    col_mapping['skus'] = col
+                # Additional column patterns
+                elif 'product' in col_lower and 'ordered' in col_lower:
+                    col_mapping['skus'] = col
             
             # If no customer column found, check first column
             if 'customer' not in col_mapping and len(df.columns) > 0:
@@ -340,7 +185,7 @@ def process_summary_format(excel_file, file_content, use_ai=False):
             # If no qty column found, look for numeric columns
             if 'qty' not in col_mapping:
                 for col in df.columns:
-                    if pd.api.types.is_numeric_dtype(df[col]):
+                    if df[col].dtype in ['int64', 'float64']:
                         # Check if this column has positive values
                         if (df[col] > 0).any():
                             col_mapping['qty'] = col
@@ -391,9 +236,6 @@ def process_summary_format(excel_file, file_content, use_ai=False):
                         labels=['A (Top 80%)', 'B (Next 15%)', 'C (Bottom 5%)']
                     )
                 
-                # Fix column types to prevent Arrow errors
-                df_standard = fix_column_types(df_standard)
-                
                 # Update stats
                 processing_stats['total_quantity'] += int(df_standard['Qty Delivered'].sum())
                 processing_stats['total_customers'] += len(df_standard)
@@ -406,31 +248,48 @@ def process_summary_format(excel_file, file_content, use_ai=False):
                             if sku:
                                 processing_stats['total_skus'].add(sku)
                 
-                # Determine category
-                category = None
-                
-                # First check AI suggestion
-                if ai_suggestion and ai_suggestion.get('category') in ['imprinting', 'embroidery']:
-                    category = ai_suggestion['category']
-                else:
-                    # Use pattern matching
-                    sheet_lower = sheet_name.lower()
-                    if any(keyword in sheet_lower for keyword in ['imprint', 'imprnt', 'imp ']):
-                        category = 'imprinting'
-                    elif any(keyword in sheet_lower for keyword in ['embroid', 'emb ', 'embro']):
-                        category = 'embroidery'
-                    elif has_both_categories:
-                        # File contains both categories, alternate assignment
-                        category = 'imprinting' if 'imprinting' not in results else 'embroidery'
-                    else:
-                        # Default assignment
-                        category = 'imprinting' if 'imprinting' not in results else 'embroidery'
-                
-                # Assign to appropriate category
-                if category == 'embroidery':
+                # Determine category based on sheet name or assign generically
+                sheet_lower = sheet_name.lower()
+                # Enhanced category detection
+                if any(keyword in sheet_lower for keyword in ['imprint', 'imprnt', 'imp ']):
+                    results['imprinting'] = df_standard
+                elif any(keyword in sheet_lower for keyword in ['embroid', 'emb ', 'embro']):
                     df_standard = df_standard.rename(columns={'Customer': 'Company'})
-                
-                results[category] = df_standard
+                    results['embroidery'] = df_standard
+                elif has_both_categories:
+                    # File contains both categories, assign based on sheet order or what's empty
+                    if sheet_idx == 0 or 'imprinting' not in results:
+                        results['imprinting'] = df_standard
+                    else:
+                        df_standard = df_standard.rename(columns={'Customer': 'Company'})
+                        results['embroidery'] = df_standard
+                else:
+                    # For generic sheet names (Sheet1, Sheet2, etc.)
+                    # Try to determine from any clues in the data
+                    embroid_found = False
+                    imprint_found = False
+                    
+                    # Check SKU patterns
+                    if 'SKUs Ordered' in df_standard.columns:
+                        all_skus = ' '.join(df_standard['SKUs Ordered'].astype(str))
+                        if any(keyword in all_skus.lower() for keyword in ['emb', 'embroid']):
+                            embroid_found = True
+                        if any(keyword in all_skus.lower() for keyword in ['imp', 'imprint']):
+                            imprint_found = True
+                    
+                    # Assign based on what was found
+                    if imprint_found and not embroid_found:
+                        results['imprinting'] = df_standard
+                    elif embroid_found and not imprint_found:
+                        df_standard = df_standard.rename(columns={'Customer': 'Company'})
+                        results['embroidery'] = df_standard
+                    else:
+                        # Default assignment - alternate between categories
+                        if 'imprinting' not in results:
+                            results['imprinting'] = df_standard
+                        else:
+                            df_standard = df_standard.rename(columns={'Customer': 'Company'})
+                            results['embroidery'] = df_standard
         
         except Exception as e:
             st.warning(f"Could not process sheet '{sheet_name}': {str(e)}")
@@ -445,7 +304,7 @@ def process_summary_format(excel_file, file_content, use_ai=False):
     return results, processing_stats
 
 @st.cache_data
-def process_customer_sku_data(file_content, filename, use_ai=False):
+def process_customer_sku_data(file_content, filename):
     """
     Process Excel file with auto-format detection.
     Enhanced to handle various file naming conventions.
@@ -466,7 +325,7 @@ def process_customer_sku_data(file_content, filename, use_ai=False):
             file_format = 'summary'
     
     if file_format == 'summary' or file_format == 'generic':
-        return process_summary_format(excel_file, file_content, use_ai)
+        return process_summary_format(excel_file, file_content)
     
     # Original processing for sales analysis format
     results = {}
@@ -474,8 +333,7 @@ def process_customer_sku_data(file_content, filename, use_ai=False):
         'total_customers': 0,
         'total_skus': set(),
         'total_quantity': 0,
-        'avg_order_size': 0,
-        'ai_suggestions': []
+        'avg_order_size': 0
     }
     
     # Try different sheet name patterns
@@ -578,9 +436,6 @@ def process_customer_sku_data(file_content, filename, use_ai=False):
                             labels=['A (Top 80%)', 'B (Next 15%)', 'C (Bottom 5%)']
                         )
                         
-                        # Fix column types
-                        result_df = fix_column_types(result_df)
-                        
                         # Store results
                         processing_stats['total_customers'] += len(result_df)
                         
@@ -608,10 +463,13 @@ def process_customer_sku_data(file_content, filename, use_ai=False):
         if sheets_processed:
             break
     
-    # If no valid data found, try generic processing with AI
+    # If no valid data found, try generic processing
     if not results and excel_file.sheet_names:
         # Process first sheet as generic customer data
-        results, processing_stats = process_summary_format(excel_file, file_content, use_ai)
+        df = pd.read_excel(io.BytesIO(file_content), sheet_name=0, engine='openpyxl')
+        if not df.empty:
+            # Try to identify customer and quantity columns
+            results, processing_stats = process_summary_format(excel_file, file_content)
     
     # Calculate average order size
     if processing_stats['total_customers'] > 0:
@@ -888,29 +746,6 @@ def main():
     st.markdown("# 🎨 Embroid/Imprint Analysis")
     st.markdown("Upload sales analysis files to identify top customers and SKU patterns")
     
-    # AI toggle in sidebar
-    with st.sidebar:
-        st.markdown("### 🤖 AI Settings")
-        use_ai = st.checkbox(
-            "Enable AI Analysis",
-            value=False,
-            help="Use AI to help identify columns and categories in your file"
-        )
-        
-        if use_ai:
-            ai_clients = init_ai_clients()
-            available_ai = []
-            if ai_clients.get('openai'):
-                available_ai.append("OpenAI ✅")
-            if ai_clients.get('anthropic'):
-                available_ai.append("Claude ✅")
-            
-            if available_ai:
-                st.success(f"Available: {', '.join(available_ai)}")
-            else:
-                st.error("No AI APIs configured")
-                st.info("Add OPENAI_API_KEY or ANTHROPIC_API_KEY to Streamlit secrets")
-    
     # File upload section
     uploaded_file = st.file_uploader(
         "Select Excel file",
@@ -933,30 +768,7 @@ def main():
                 file_content = uploaded_file.read()
                 
                 # Process with caching
-                results, stats = process_customer_sku_data(file_content, uploaded_file.name, use_ai)
-            
-            # Show AI suggestions if available
-            if stats.get('ai_suggestions'):
-                with st.expander("🤖 AI Analysis Results", expanded=True):
-                    for suggestion in stats['ai_suggestions']:
-                        st.markdown(f"**Sheet: {suggestion['sheet']}**")
-                        ai_result = suggestion['suggestion']
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.markdown("**Detected Columns:**")
-                            if ai_result.get('customer_column'):
-                                st.markdown(f"- Customer: `{ai_result['customer_column']}`")
-                            if ai_result.get('quantity_column'):
-                                st.markdown(f"- Quantity: `{ai_result['quantity_column']}`")
-                            if ai_result.get('sku_column'):
-                                st.markdown(f"- SKU: `{ai_result['sku_column']}`")
-                        
-                        with col2:
-                            st.markdown(f"**Category:** {ai_result.get('category', 'unknown').title()}")
-                            st.markdown(f"**Confidence:** {ai_result.get('confidence', 0):.0%}")
-                            if ai_result.get('notes'):
-                                st.markdown(f"**Notes:** {ai_result['notes']}")
+                results, stats = process_customer_sku_data(file_content, uploaded_file.name)
             
             if not results:
                 # Run diagnostics on the file
@@ -1000,12 +812,11 @@ def main():
                 st.markdown("""
                 <div class="info-box">
                 <strong>Next Steps:</strong><br>
-                1. Enable AI Analysis in the sidebar for better column detection<br>
-                2. Verify the file contains data by opening it in Excel<br>
-                3. Ensure data is in a standard table format (not pivot tables)<br>
-                4. Check that customer names and quantities are in separate columns<br>
-                5. Try using the sample file generator below as a template<br>
-                6. If the issue persists, try re-exporting from your source system
+                1. Verify the file contains data by opening it in Excel<br>
+                2. Ensure data is in a standard table format (not pivot tables)<br>
+                3. Check that customer names and quantities are in separate columns<br>
+                4. Try using the sample file generator below as a template<br>
+                5. If the issue persists, try re-exporting from your source system
                 </div>
                 """, unsafe_allow_html=True)
                 return
@@ -1228,8 +1039,7 @@ def main():
                 • <b>Generic format</b>: Any sheet with customer and quantity columns<br>
                 • Ensure the file is not password protected<br>
                 • Column names are flexible: Customer/Company/Client, Qty/Quantity/Volume, etc.<br>
-                • Try saving in .xlsx format if using .xls<br>
-                • <b>Enable AI Analysis</b> in the sidebar for better column detection
+                • Try saving in .xlsx format if using .xls
                 </div>
                 """, unsafe_allow_html=True)
             
@@ -1246,9 +1056,8 @@ def main():
         ### 📁 How to use:
         
         1. **Upload** your Excel file containing sales or customer data
-        2. **Enable AI** (optional) in the sidebar for intelligent column detection
-        3. **View** automated analysis with customer rankings and SKU patterns  
-        4. **Export** comprehensive reports for further analysis
+        2. **View** automated analysis with customer rankings and SKU patterns  
+        3. **Export** comprehensive reports for further analysis
         
         ### 📊 What you'll get:
         
@@ -1261,7 +1070,6 @@ def main():
         
         - Handles files up to 200MB
         - Auto-detects multiple file formats
-        - **AI-powered column detection** (when enabled)
         - Real-time search and filtering
         - Export to Excel with formatting
         """)
@@ -1294,12 +1102,6 @@ def main():
             - SKU patterns and popular products
             - Pareto analysis (80/20 rule)
             - Revenue tier classification (A/B/C)
-            
-            **🤖 AI Analysis (when enabled):**
-            - Automatically identifies customer columns
-            - Detects quantity/volume columns
-            - Determines if data is for imprinting or embroidery
-            - Suggests correct column mappings
             """)
         
         # Generate sample file
