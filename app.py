@@ -391,13 +391,13 @@ def process_all_sheets(excel_file, file_content, processing_stats, use_ai=False)
     # Try to read with different encoding if needed
     encodings = [None, 'utf-8', 'latin1', 'cp1252']
     
+    sheets_processed = False
+    
     for encoding in encodings:
         try:
             # Re-read the file with specific encoding
             if encoding:
                 excel_file = pd.ExcelFile(io.BytesIO(file_content))
-            
-            sheets_processed = False
             
             for sheet_name in excel_file.sheet_names:
                 try:
@@ -439,9 +439,13 @@ def process_all_sheets(excel_file, file_content, processing_stats, use_ai=False)
                 except Exception as e:
                     st.warning(f"Could not process sheet '{sheet_name}': {str(e)}")
                     continue
-        
-        if sheets_processed:
-            break
+            
+            if sheets_processed:
+                break
+                
+        except Exception as e:
+            # Try next encoding
+            continue
     
     # If no valid data found, try generic processing with AI
     if not results and excel_file.sheet_names:
