@@ -77,14 +77,30 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data
-def process_customer_sku_data(file_content, filename):
+def detect_file_format(excel_file):
     """
-    Process Excel file with caching for better performance.
+    Detect the format of the Excel file (Sales Analysis or Summary format)
     """
-    # Read Excel file from bytes
-    excel_file = pd.ExcelFile(io.BytesIO(file_content))
+    sheet_names = excel_file.sheet_names
     
+    # Check for original sales analysis format
+    if any('Sales Analysis' in sheet for sheet in sheet_names):
+        return 'sales_analysis'
+    
+    # Check for summary format
+    elif any('Top Customers' in sheet for sheet in sheet_names):
+        return 'summary'
+    
+    # Check for generic sheets that might contain customer data
+    elif any(sheet.lower() in ['imprinting', 'embroidery', 'customers', 'data'] for sheet in sheet_names):
+        return 'generic'
+    
+    return 'unknown'
+
+def process_summary_format(excel_file, file_content):
+    """
+    Process files that are already in summary format
+    """
     results = {}
     processing_stats = {
         'total_customers': 0,
@@ -93,84 +109,262 @@ def process_customer_sku_data(file_content, filename):
         'avg_order_size': 0
     }
     
-    for sheet_type in ['Imprinting - Sales Analysis', 'Embroidery - Sales Analysis']:
-        if sheet_type in excel_file.sheet_names:
-            # Read with optimization for large files
-            df = pd.read_excel(
-                io.BytesIO(file_content), 
-                sheet_name=sheet_type,
-                engine='openpyxl'
-            )
+    # Process each sheet
+    for sheet_name in excel_file.sheet_names:
+        df = pd.read_excel(io.BytesIO(file_content), sheet_name=sheet_name, engine='openpyxl')
+        
+        # Skip empty sheets
+        if df.empty or len(df) == 0:
+            continue
+        
+        # Detect column names (case-insensitive)
+        col_mapping = {}
+        for col in df.columns:
+            col_lower = str(col).lower()
+            if 'customer' in col_lower or 'company' in col_lower:
+                col_mapping['customer'] = col
+            elif 'qty' in col_lower or 'quantity' in col_lower:
+                col_mapping['qty'] = col
+            elif 'sku' in col_lower and 'ordered' in col_lower:
+                col_mapping['skus'] = col
+            elif 'sku' in col_lower and 'count' in col_lower:
+                col_mapping['sku_count'] = col
+        
+        # Ensure we have minimum required columns
+        if 'customer' in col_mapping and 'qty' in col_mapping:
+            # Standardize column names
+            df_standard = pd.DataFrame()
+            df_standard['Customer'] = df[col_mapping['customer']]
+            df_standard['Qty Delivered'] = pd.to_numeric(df[col_mapping['qty']], errors='coerce').fillna(0).astype(int)
             
-            # Process data
-            customer_data = defaultdict(lambda: {
-                'total_qty': 0, 
-                'skus': set(),
-                'order_count': 0,
-                'avg_order_size': 0
-            })
-            current_sku = None
-            
-            # Skip header rows more efficiently
-            data_start_idx = 4
-            
-            for idx in range(data_start_idx, len(df)):
-                row = df.iloc[idx]
-                col_a_value = str(row.iloc[0]) if pd.notna(row.iloc[0]) else ''
-                
-                # SKU detection
-                if '[' in col_a_value and ']' in col_a_value:
-                    sku_start = col_a_value.find('[')
-                    sku_end = col_a_value.find(']')
-                    current_sku = col_a_value[sku_start:sku_end+1] + col_a_value[sku_end+1:].strip()
-                    processing_stats['total_skus'].add(current_sku)
-                else:
-                    customer_name = col_a_value.strip()
-                    
-                    if customer_name and customer_name != 'Total' and current_sku:
-                        try:
-                            qty = float(row.iloc[7]) if pd.notna(row.iloc[7]) else 0
-                        except:
-                            qty = 0
-                        
-                        if qty > 0:
-                            customer_data[customer_name]['total_qty'] += qty
-                            customer_data[customer_name]['skus'].add(current_sku)
-                            customer_data[customer_name]['order_count'] += 1
-                            processing_stats['total_quantity'] += qty
-            
-            # Convert to DataFrame with additional analytics
-            data_list = []
-            for customer, data in customer_data.items():
-                avg_order = data['total_qty'] / data['order_count'] if data['order_count'] > 0 else 0
-                data_list.append({
-                    'Customer': customer,
-                    'Qty Delivered': int(data['total_qty']),
-                    'SKU Count': len(data['skus']),
-                    'Avg Order Size': round(avg_order, 1),
-                    'SKUs Ordered': ', '.join(sorted(data['skus']))
-                })
-            
-            # Create sorted DataFrame
-            result_df = pd.DataFrame(data_list)
-            result_df = result_df.sort_values('Qty Delivered', ascending=False)
-            result_df = result_df.reset_index(drop=True)
-            
-            # Calculate Pareto (80/20 rule)
-            result_df['Cumulative %'] = (result_df['Qty Delivered'].cumsum() / result_df['Qty Delivered'].sum() * 100).round(1)
-            result_df['Revenue Tier'] = pd.cut(
-                result_df['Cumulative %'], 
-                bins=[0, 80, 95, 100], 
-                labels=['A (Top 80%)', 'B (Next 15%)', 'C (Bottom 5%)']
-            )
-            
-            # Store results
-            processing_stats['total_customers'] += len(result_df)
-            if 'Imprinting' in sheet_type:
-                results['imprinting'] = result_df
+            # Add SKU information if available
+            if 'skus' in col_mapping:
+                df_standard['SKUs Ordered'] = df[col_mapping['skus']].fillna('')
+                # Extract SKU count
+                df_standard['SKU Count'] = df_standard['SKUs Ordered'].apply(
+                    lambda x: len(x.split(',')) if x else 0
+                )
+            elif 'sku_count' in col_mapping:
+                df_standard['SKU Count'] = pd.to_numeric(df[col_mapping['sku_count']], errors='coerce').fillna(0).astype(int)
+                df_standard['SKUs Ordered'] = ''
             else:
-                result_df = result_df.rename(columns={'Customer': 'Company'})
-                results['embroidery'] = result_df
+                df_standard['SKU Count'] = 0
+                df_standard['SKUs Ordered'] = ''
+            
+            # Calculate average order size (estimate if not provided)
+            if 'Avg Order Size' not in df.columns:
+                df_standard['Avg Order Size'] = (df_standard['Qty Delivered'] / df_standard['SKU Count'].clip(lower=1)).round(1)
+            else:
+                df_standard['Avg Order Size'] = df['Avg Order Size']
+            
+            # Remove any rows with invalid customer names
+            df_standard = df_standard[df_standard['Customer'].notna()]
+            df_standard = df_standard[df_standard['Customer'] != '']
+            
+            # Sort by quantity
+            df_standard = df_standard.sort_values('Qty Delivered', ascending=False).reset_index(drop=True)
+            
+            # Calculate Pareto analysis
+            if len(df_standard) > 0 and df_standard['Qty Delivered'].sum() > 0:
+                df_standard['Cumulative %'] = (df_standard['Qty Delivered'].cumsum() / df_standard['Qty Delivered'].sum() * 100).round(1)
+                df_standard['Revenue Tier'] = pd.cut(
+                    df_standard['Cumulative %'], 
+                    bins=[0, 80, 95, 100], 
+                    labels=['A (Top 80%)', 'B (Next 15%)', 'C (Bottom 5%)']
+                )
+            
+            # Update stats
+            processing_stats['total_quantity'] += df_standard['Qty Delivered'].sum()
+            processing_stats['total_customers'] += len(df_standard)
+            
+            # Extract unique SKUs
+            for skus in df_standard['SKUs Ordered']:
+                if skus:
+                    for sku in skus.split(','):
+                        sku = sku.strip()
+                        if sku:
+                            processing_stats['total_skus'].add(sku)
+            
+            # Determine category based on sheet name
+            sheet_lower = sheet_name.lower()
+            if 'imprint' in sheet_lower:
+                results['imprinting'] = df_standard
+            elif 'embroid' in sheet_lower:
+                df_standard = df_standard.rename(columns={'Customer': 'Company'})
+                results['embroidery'] = df_standard
+            else:
+                # Try to guess based on content or use generic names
+                if not results:
+                    results['imprinting'] = df_standard
+                else:
+                    df_standard = df_standard.rename(columns={'Customer': 'Company'})
+                    results['embroidery'] = df_standard
+    
+    # Calculate average order size
+    if processing_stats['total_customers'] > 0:
+        processing_stats['avg_order_size'] = round(
+            processing_stats['total_quantity'] / processing_stats['total_customers'], 1
+        )
+    
+    return results, processing_stats
+
+@st.cache_data
+def process_customer_sku_data(file_content, filename):
+    """
+    Process Excel file with auto-format detection.
+    """
+    # Read Excel file from bytes
+    excel_file = pd.ExcelFile(io.BytesIO(file_content))
+    
+    # Detect file format
+    file_format = detect_file_format(excel_file)
+    
+    if file_format == 'summary':
+        return process_summary_format(excel_file, file_content)
+    
+    # Original processing for sales analysis format
+    results = {}
+    processing_stats = {
+        'total_customers': 0,
+        'total_skus': set(),
+        'total_quantity': 0,
+        'avg_order_size': 0
+    }
+    
+    # Try different sheet name patterns
+    sheet_patterns = [
+        ['Imprinting - Sales Analysis', 'Embroidery - Sales Analysis'],  # Original format
+        ['Imprinting', 'Embroidery'],  # Simplified names
+        excel_file.sheet_names  # All sheets if patterns don't match
+    ]
+    
+    sheets_processed = False
+    
+    for patterns in sheet_patterns:
+        for sheet_name in patterns:
+            if sheet_name in excel_file.sheet_names:
+                try:
+                    # Read with optimization for large files
+                    df = pd.read_excel(
+                        io.BytesIO(file_content), 
+                        sheet_name=sheet_name,
+                        engine='openpyxl'
+                    )
+                    
+                    # Skip empty sheets
+                    if df.empty or len(df) < 5:
+                        continue
+                    
+                    # Process data
+                    customer_data = defaultdict(lambda: {
+                        'total_qty': 0, 
+                        'skus': set(),
+                        'order_count': 0,
+                        'avg_order_size': 0
+                    })
+                    current_sku = None
+                    
+                    # Skip header rows more efficiently
+                    data_start_idx = 4
+                    
+                    for idx in range(data_start_idx, len(df)):
+                        row = df.iloc[idx]
+                        col_a_value = str(row.iloc[0]) if pd.notna(row.iloc[0]) else ''
+                        
+                        # SKU detection
+                        if '[' in col_a_value and ']' in col_a_value:
+                            sku_start = col_a_value.find('[')
+                            sku_end = col_a_value.find(']')
+                            current_sku = col_a_value[sku_start:sku_end+1] + col_a_value[sku_end+1:].strip()
+                            processing_stats['total_skus'].add(current_sku)
+                        else:
+                            customer_name = col_a_value.strip()
+                            
+                            if customer_name and customer_name != 'Total' and current_sku:
+                                try:
+                                    # Try column H (index 7) first, then look for numeric columns
+                                    if len(row) > 7:
+                                        qty = float(row.iloc[7]) if pd.notna(row.iloc[7]) else 0
+                                    else:
+                                        # Find first numeric column
+                                        qty = 0
+                                        for i in range(1, len(row)):
+                                            try:
+                                                val = float(row.iloc[i])
+                                                if val > 0:
+                                                    qty = val
+                                                    break
+                                            except:
+                                                continue
+                                except:
+                                    qty = 0
+                                
+                                if qty > 0:
+                                    customer_data[customer_name]['total_qty'] += qty
+                                    customer_data[customer_name]['skus'].add(current_sku)
+                                    customer_data[customer_name]['order_count'] += 1
+                                    processing_stats['total_quantity'] += qty
+                    
+                    # Convert to DataFrame with additional analytics
+                    if customer_data:
+                        data_list = []
+                        for customer, data in customer_data.items():
+                            avg_order = data['total_qty'] / data['order_count'] if data['order_count'] > 0 else 0
+                            data_list.append({
+                                'Customer': customer,
+                                'Qty Delivered': int(data['total_qty']),
+                                'SKU Count': len(data['skus']),
+                                'Avg Order Size': round(avg_order, 1),
+                                'SKUs Ordered': ', '.join(sorted(data['skus']))
+                            })
+                        
+                        # Create sorted DataFrame
+                        result_df = pd.DataFrame(data_list)
+                        result_df = result_df.sort_values('Qty Delivered', ascending=False)
+                        result_df = result_df.reset_index(drop=True)
+                        
+                        # Calculate Pareto (80/20 rule)
+                        result_df['Cumulative %'] = (result_df['Qty Delivered'].cumsum() / result_df['Qty Delivered'].sum() * 100).round(1)
+                        result_df['Revenue Tier'] = pd.cut(
+                            result_df['Cumulative %'], 
+                            bins=[0, 80, 95, 100], 
+                            labels=['A (Top 80%)', 'B (Next 15%)', 'C (Bottom 5%)']
+                        )
+                        
+                        # Store results
+                        processing_stats['total_customers'] += len(result_df)
+                        
+                        # Determine category
+                        sheet_lower = sheet_name.lower()
+                        if 'imprint' in sheet_lower:
+                            results['imprinting'] = result_df
+                        elif 'embroid' in sheet_lower:
+                            result_df = result_df.rename(columns={'Customer': 'Company'})
+                            results['embroidery'] = result_df
+                        else:
+                            # Generic assignment
+                            if 'imprinting' not in results:
+                                results['imprinting'] = result_df
+                            else:
+                                result_df = result_df.rename(columns={'Customer': 'Company'})
+                                results['embroidery'] = result_df
+                        
+                        sheets_processed = True
+                
+                except Exception as e:
+                    st.warning(f"Could not process sheet '{sheet_name}': {str(e)}")
+                    continue
+        
+        if sheets_processed:
+            break
+    
+    # If no valid data found, try generic processing
+    if not results and excel_file.sheet_names:
+        # Process first sheet as generic customer data
+        df = pd.read_excel(io.BytesIO(file_content), sheet_name=0, engine='openpyxl')
+        if not df.empty:
+            # Try to identify customer and quantity columns
+            results, processing_stats = process_summary_format(excel_file, file_content)
     
     # Calculate average order size
     if processing_stats['total_customers'] > 0:
@@ -346,7 +540,7 @@ def main():
     uploaded_file = st.file_uploader(
         "Select Excel file",
         type=['xlsx', 'xls'],
-        help="Supports large files up to 200MB"
+        help="Supports: Sales Analysis format, Customer Summary format, and files up to 200MB"
     )
     
     if uploaded_file:
@@ -367,8 +561,31 @@ def main():
                 results, stats = process_customer_sku_data(file_content, uploaded_file.name)
             
             if not results:
-                st.error("No valid data sheets found in the file.")
+                st.error("No valid data found in the file.")
+                st.markdown("""
+                <div class="info-box">
+                <strong>Supported formats:</strong><br>
+                • <b>Sales Analysis</b>: Sheets named 'Imprinting - Sales Analysis' or 'Embroidery - Sales Analysis'<br>
+                • <b>Customer Summary</b>: Sheets with 'Top Customers' in the name<br>
+                • <b>Generic</b>: Any sheet with Customer/Company and Quantity columns<br><br>
+                Please check your file format and try again.
+                </div>
+                """, unsafe_allow_html=True)
                 return
+            
+            # Show file info for transparency
+            with st.expander("📄 File Detection Info", expanded=False):
+                excel_file = pd.ExcelFile(io.BytesIO(file_content))
+                format_detected = detect_file_format(excel_file)
+                
+                st.markdown(f"**File Format Detected:** {format_detected.replace('_', ' ').title()}")
+                st.markdown(f"**Sheets Found:** {', '.join(excel_file.sheet_names)}")
+                
+                # Show preview of first sheet
+                if excel_file.sheet_names:
+                    preview_df = pd.read_excel(io.BytesIO(file_content), sheet_name=0, nrows=5)
+                    st.markdown("**Data Preview (first 5 rows):**")
+                    st.dataframe(preview_df, use_container_width=True)
             
             # Success message
             st.success(f"✓ Processed {stats['total_customers']} customers across {len(stats['total_skus'])} unique SKUs")
@@ -529,22 +746,43 @@ def main():
             
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
-            st.markdown("""
-            <div class="info-box">
-            <strong>Troubleshooting:</strong><br>
-            • Ensure the file contains 'Imprinting - Sales Analysis' or 'Embroidery - Sales Analysis' sheets<br>
-            • Check that data starts from row 5 with customer names in column A<br>
-            • Verify quantities are in column H<br>
-            • Try saving the file in .xlsx format if using .xls
-            </div>
-            """, unsafe_allow_html=True)
+            
+            # Provide specific troubleshooting based on error
+            if "list index out of range" in str(e):
+                st.markdown("""
+                <div class="info-box">
+                <strong>File structure issue detected. Please check:</strong><br>
+                • Column A should contain customer names or SKU information<br>
+                • Quantity data should be in column H (for Sales Analysis format)<br>
+                • For Summary format: ensure columns are named properly<br>
+                • Data should start from row 5 (Sales Analysis) or row 1 (Summary)
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div class="info-box">
+                <strong>Troubleshooting:</strong><br>
+                • <b>Sales Analysis format</b>: Sheets named 'Imprinting/Embroidery - Sales Analysis'<br>
+                • <b>Summary format</b>: Columns for Customer, Qty Delivered, SKUs Ordered<br>
+                • <b>Generic format</b>: Any sheet with customer and quantity columns<br>
+                • Ensure the file is not password protected<br>
+                • Try saving in .xlsx format if using .xls
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Show detected sheets for debugging
+            try:
+                excel_file = pd.ExcelFile(io.BytesIO(file_content))
+                st.info(f"Detected sheets: {', '.join(excel_file.sheet_names)}")
+            except:
+                pass
     
     else:
         # Instructions when no file is uploaded
         st.markdown("""
         ### 📁 How to use:
         
-        1. **Upload** your Excel file containing sales analysis data
+        1. **Upload** your Excel file containing sales or customer data
         2. **View** automated analysis with customer rankings and SKU patterns  
         3. **Export** comprehensive reports for further analysis
         
@@ -558,23 +796,33 @@ def main():
         ### ⚡ Features:
         
         - Handles files up to 200MB
-        - Processes multiple sheets automatically
+        - Auto-detects multiple file formats
         - Real-time search and filtering
         - Export to Excel with formatting
         """)
         
         # Sample data structure
-        with st.expander("📋 Expected File Format"):
+        with st.expander("📋 Supported File Formats"):
             st.markdown("""
-            Your Excel file should contain sheets named:
-            - `Imprinting - Sales Analysis`
-            - `Embroidery - Sales Analysis`
-            
-            Each sheet should have:
+            **Format 1: Sales Analysis**
+            - Sheet names: `Imprinting - Sales Analysis` or `Embroidery - Sales Analysis`
             - Customer names in column A
             - SKU information in brackets [SKU123] 
             - Quantities in column H
             - Data starting from row 5
+            
+            **Format 2: Customer Summary**
+            - Pre-processed customer data
+            - Columns: Customer/Company, Qty Delivered, SKUs Ordered
+            - Any sheet name containing 'Top Customers'
+            
+            **Format 3: Generic Format**
+            - Any Excel sheet with:
+                - Customer or Company column
+                - Quantity or Qty column
+                - Optional: SKU information
+            
+            The tool will automatically detect your file format!
             """)
 
 if __name__ == "__main__":
