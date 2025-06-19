@@ -193,12 +193,20 @@ st.markdown("""
         padding: 1.5rem;
         box-shadow: 0 1px 3px rgba(0,0,0,0.08);
         margin-bottom: 1rem;
+        border: 1px solid #e5e7eb;
     }
     
     .info-card h4 {
         font-size: 1.125rem;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.75rem;
         color: #374151;
+        font-weight: 600;
+    }
+    
+    .info-card p {
+        margin: 0;
+        color: #4b5563;
+        line-height: 1.6;
     }
     
     /* Success/Error messages */
@@ -1063,14 +1071,17 @@ def create_excel_output(results, stats):
 
 def display_category_results(category, df):
     """Display results for a single category"""
-    st.markdown(f"### {category.title()} Analysis")
+    # Header with category name
+    st.markdown(f"## {category.title()} Customer Analysis")
     
     # Ensure required columns exist
     if 'Total Quantity' not in df.columns:
         st.error("Missing 'Total Quantity' column in data")
         return
     
-    # Key insights cards
+    # Section 1: Key Metrics
+    st.markdown("### 📊 Key Metrics")
+    
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -1112,8 +1123,8 @@ def display_category_results(category, df):
             help="Number of customers contributing 80% of volume"
         )
     
-    # Insights section
-    st.markdown("#### 💡 Key Insights")
+    # Section 2: Customer Insights
+    st.markdown("### 💡 Customer Insights")
     
     # Calculate tier distribution with safety checks
     total_qty = df['Total Quantity'].sum()
@@ -1135,18 +1146,18 @@ def display_category_results(category, df):
     else:
         a_customers = b_customers = c_customers = 0
     
-    # Display insights
-    col1, col2 = st.columns(2)
+    # Display insights in columns
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown(f"""
-        <div class="insight-card">
-            <strong>Customer Segmentation:</strong><br>
-            • Tier A (Strategic): {a_customers} customers<br>
-            • Tier B (Important): {b_customers} customers<br>
-            • Tier C (Standard): {c_customers} customers
+        st.markdown("""
+        <div class="info-card">
+            <h4 style="color: #667eea;">Customer Segmentation</h4>
+            <p><strong>Tier A (Strategic):</strong> {0} customers<br>
+            <strong>Tier B (Important):</strong> {1} customers<br>
+            <strong>Tier C (Standard):</strong> {2} customers</p>
         </div>
-        """, unsafe_allow_html=True)
+        """.format(a_customers, b_customers, c_customers), unsafe_allow_html=True)
     
     with col2:
         # Top customer info - with safety checks
@@ -1155,28 +1166,59 @@ def display_category_results(category, df):
             top_customer = df.iloc[0]
             customer_share = (top_customer['Total Quantity'] / total_qty * 100)
             st.markdown(f"""
-            <div class="insight-card">
-                <strong>Top Customer:</strong><br>
-                {top_customer.get(customer_col, 'N/A')}<br>
+            <div class="info-card">
+                <h4 style="color: #667eea;">Top Customer</h4>
+                <p><strong>{top_customer.get(customer_col, 'N/A')}</strong><br>
                 Volume: {top_customer['Total Quantity']:,.0f}<br>
-                Share: {customer_share:.1f}%
+                Share: {customer_share:.1f}%</p>
             </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown("""
-            <div class="insight-card">
-                <strong>Top Customer:</strong><br>
-                No customer data available
+            <div class="info-card">
+                <h4 style="color: #667eea;">Top Customer</h4>
+                <p>No customer data available</p>
             </div>
             """, unsafe_allow_html=True)
     
-    # Top customers table
-    st.markdown("#### 🏆 Top 10 Customers")
+    with col3:
+        # Average metrics
+        avg_order = df['Total Quantity'].mean() if len(df) > 0 else 0
+        if 'SKU Count' in df.columns:
+            avg_skus = df['SKU Count'].mean()
+            st.markdown(f"""
+            <div class="info-card">
+                <h4 style="color: #667eea;">Average Metrics</h4>
+                <p><strong>Avg Order Size:</strong> {avg_order:,.0f}<br>
+                <strong>Avg SKUs/Customer:</strong> {avg_skus:.1f}<br>
+                <strong>Total Unique SKUs:</strong> {df['SKU Count'].sum()}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="info-card">
+                <h4 style="color: #667eea;">Average Order Size</h4>
+                <p><strong>{avg_order:,.0f}</strong> units per customer</p>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Section 3: Top Customers
+    st.markdown("### 🏆 Top 10 Customers")
     
     top_10_df = df.head(10).copy()
     display_cols = ['Rank']
     display_cols.append(customer_col)
-    display_cols.extend(['Total Quantity', 'SKU Count'])
+    display_cols.extend(['Total Quantity'])
+    
+    if 'SKUs' in top_10_df.columns:
+        display_cols.append('SKUs')
+    if 'SKU Count' in top_10_df.columns:
+        display_cols.append('SKU Count')
+    
+    # Add percentage column
+    if total_qty > 0:
+        top_10_df['Share %'] = (top_10_df['Total Quantity'] / total_qty * 100).round(1)
+        display_cols.append('Share %')
     
     # Select only available columns
     display_cols = [col for col in display_cols if col in top_10_df.columns]
@@ -1184,8 +1226,10 @@ def display_category_results(category, df):
     
     # Format numbers
     top_10_display['Total Quantity'] = top_10_display['Total Quantity'].apply(lambda x: f'{x:,.0f}')
+    if 'Share %' in top_10_display.columns:
+        top_10_display['Share %'] = top_10_display['Share %'].apply(lambda x: f'{x:.1f}%')
     
-    # Display with custom styling
+    # Display table
     st.dataframe(
         top_10_display,
         use_container_width=True,
@@ -1193,13 +1237,13 @@ def display_category_results(category, df):
         hide_index=True
     )
     
-    # SKU Analysis Section
+    # Section 4: SKU Analysis (if available)
     if 'SKUs' in df.columns and df['SKUs'].notna().any():
-        st.markdown("#### 📦 SKU Analysis")
+        st.markdown("### 📦 SKU Analysis")
         
         try:
             # Create tabs for SKU analysis
-            sku_tab1, sku_tab2 = st.tabs(["Top SKUs", "SKU Customer Details"])
+            sku_tab1, sku_tab2 = st.tabs(["📊 Top SKUs Overview", "👥 SKU-Customer Details"])
             
             with sku_tab1:
                 # Extract all SKUs with volume data
@@ -1251,7 +1295,7 @@ def display_category_results(category, df):
                     # Display top SKUs metrics
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("Total SKUs", len(sku_df))
+                        st.metric("Total Unique SKUs", len(sku_df))
                     with col2:
                         if len(sku_df) > 0:
                             st.metric("Top SKU Volume", f"{sku_df.iloc[0]['Total Volume']:,.0f}")
@@ -1262,7 +1306,7 @@ def display_category_results(category, df):
                             st.metric("Top 5 SKUs Share", f"{top_5_share:.1f}%")
                     
                     # Display top SKUs table
-                    st.markdown("##### Most Popular SKUs")
+                    st.markdown("#### Most Popular SKUs")
                     
                     # Format for display
                     display_df = sku_df.head(20)[['Rank', 'SKU', 'Total Volume', 'Customer Count', 'Avg Volume per Customer']].copy()
@@ -1279,7 +1323,8 @@ def display_category_results(category, df):
                     st.info("No SKU data available for analysis")
             
             with sku_tab2:
-                st.markdown("##### SKU Customer Details")
+                st.markdown("#### SKU Customer Breakdown")
+                st.caption("Click on each SKU to see which customers order it")
                 
                 # Create expandable sections for each top SKU
                 if sku_volumes:
@@ -1332,14 +1377,29 @@ def display_category_results(category, df):
             logger.error(f"Error in SKU analysis: {e}")
             st.error("Error analyzing SKU data. Please check your data format.")
     
-    # All customers expandable
-    with st.expander("📊 View All Customers", expanded=False):
-        # Ensure display_cols are available in df
-        available_display_cols = [col for col in display_cols if col in df.columns]
-        if available_display_cols:
-            all_display = df[available_display_cols].copy()
+    # Section 5: Complete Customer List
+    st.markdown("### 📋 Complete Customer List")
+    
+    with st.expander("View All Customers", expanded=False):
+        # Prepare full customer list
+        all_cols = ['Rank', customer_col, 'Total Quantity']
+        if 'SKUs' in df.columns:
+            all_cols.append('SKUs')
+        if 'SKU Count' in df.columns:
+            all_cols.append('SKU Count')
+        if 'Cumulative %' in df.columns:
+            all_cols.append('Cumulative %')
+        
+        # Ensure columns exist
+        available_cols = [col for col in all_cols if col in df.columns]
+        if available_cols:
+            all_display = df[available_cols].copy()
+            
+            # Format numbers
             if 'Total Quantity' in all_display.columns:
                 all_display['Total Quantity'] = all_display['Total Quantity'].apply(lambda x: f'{x:,.0f}')
+            if 'Cumulative %' in all_display.columns:
+                all_display['Cumulative %'] = all_display['Cumulative %'].apply(lambda x: f'{x:.1f}%')
             
             st.dataframe(
                 all_display,
@@ -1347,6 +1407,9 @@ def display_category_results(category, df):
                 height=600,
                 hide_index=True
             )
+            
+            # Quick stats
+            st.caption(f"Showing all {len(df)} customers sorted by volume")
         else:
             st.warning("No data available to display")
 
@@ -1394,8 +1457,14 @@ def main():
             
             # Display results
             if results:
-                # Success message
-                st.success(f"✅ Analysis complete in {processing_time:.1f} seconds")
+                # Success message with summary
+                col1, col2, col3 = st.columns([2, 1, 1])
+                with col1:
+                    st.success(f"✅ Analysis complete in {processing_time:.1f} seconds")
+                with col2:
+                    st.info(f"📊 {len(results)} categories found")
+                with col3:
+                    st.info(f"👥 {processing_stats.get('total_customers', 0)} total customers")
                 
                 # Check for any processing errors
                 if processing_stats.get('errors'):
@@ -1403,98 +1472,126 @@ def main():
                         for error in processing_stats['errors']:
                             st.warning(error)
                 
-                # Display visualizations first
-                st.markdown("### 📊 Customer Analytics Dashboard")
+                # Create main tabs for better organization
+                main_tab1, main_tab2, main_tab3 = st.tabs(["📊 Visual Dashboard", "📋 Detailed Analysis", "💾 Export Data"])
                 
-                try:
-                    viz = create_visualizations(results)
+                with main_tab1:
+                    # Display visualizations
+                    st.markdown("### Customer Analytics Overview")
                     
-                    # Display charts for each category
-                    for category in results.keys():
-                        if f'{category}_donut' in viz and f'{category}_concentration' in viz:
-                            st.markdown(f"#### {category.title()} Insights")
-                            
-                            col1, col2 = st.columns([1, 1])
-                            
-                            with col1:
-                                st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-                                st.plotly_chart(viz[f'{category}_donut'], use_container_width=True)
-                                st.markdown('</div>', unsafe_allow_html=True)
-                            
-                            with col2:
-                                st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-                                st.plotly_chart(viz[f'{category}_concentration'], use_container_width=True)
-                                st.markdown('</div>', unsafe_allow_html=True)
-                            
-                            # Add SKU chart if available
-                            if f'{category}_sku' in viz:
-                                st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-                                st.plotly_chart(viz[f'{category}_sku'], use_container_width=True)
-                                st.markdown('</div>', unsafe_allow_html=True)
-                except Exception as e:
-                    logger.error(f"Error creating visualizations: {e}")
-                    st.error("Error creating visualizations. Please check your data format.")
-                
-                st.markdown("---")
-                
-                # Detailed analysis section
-                try:
-                    if len(results) > 1:
-                        tabs = st.tabs([cat.title() for cat in results.keys()])
-                        
-                        for idx, (category, df) in enumerate(results.items()):
-                            with tabs[idx]:
-                                display_category_results(category, df)
-                    else:
-                        # Single category
-                        category, df = next(iter(results.items()))
-                        display_category_results(category, df)
-                except Exception as e:
-                    logger.error(f"Error displaying results: {e}")
-                    st.error("Error displaying detailed results. Data may be incomplete.")
-                
-                # Export section with better styling
-                st.markdown("---")
-                st.markdown("### 💾 Export Your Analysis")
-                
-                col1, col2, col3 = st.columns([1, 1, 2])
-                
-                with col1:
                     try:
-                        # Excel download
-                        excel_output = create_excel_output(results, processing_stats)
-                        st.download_button(
-                            label="📥 Download Excel Report",
-                            data=excel_output,
-                            file_name=f"customer_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+                        viz = create_visualizations(results)
+                        
+                        # Display charts for each category
+                        for category in results.keys():
+                            with st.container():
+                                st.markdown(f"#### {category.title()} Performance")
+                                
+                                # Customer segmentation and concentration charts
+                                if f'{category}_donut' in viz and f'{category}_concentration' in viz:
+                                    col1, col2 = st.columns([1, 1])
+                                    
+                                    with col1:
+                                        st.plotly_chart(viz[f'{category}_donut'], use_container_width=True)
+                                    
+                                    with col2:
+                                        st.plotly_chart(viz[f'{category}_concentration'], use_container_width=True)
+                                
+                                # SKU analysis chart
+                                if f'{category}_sku' in viz:
+                                    st.markdown(f"##### Top {category.title()} SKUs")
+                                    st.plotly_chart(viz[f'{category}_sku'], use_container_width=True)
+                                
+                                st.markdown("---")
+                                
                     except Exception as e:
-                        logger.error(f"Error creating Excel export: {e}")
-                        st.error("Error creating Excel export")
+                        logger.error(f"Error creating visualizations: {e}")
+                        st.error("Error creating visualizations. Please check your data format.")
                 
-                with col2:
+                with main_tab2:
+                    # Detailed analysis section
+                    st.markdown("### Detailed Customer & SKU Analysis")
+                    
                     try:
-                        # CSV download (combined)
-                        combined_df = pd.DataFrame()
-                        for category, df in results.items():
-                            df_copy = df.copy()
-                            df_copy['Category'] = category.title()
-                            if 'Company' in df_copy.columns:
-                                df_copy = df_copy.rename(columns={'Company': 'Customer'})
-                            combined_df = pd.concat([combined_df, df_copy], ignore_index=True)
+                        if len(results) > 1:
+                            category_tabs = st.tabs([f"{cat.title()} Details" for cat in results.keys()])
+                            
+                            for idx, (category, df) in enumerate(results.items()):
+                                with category_tabs[idx]:
+                                    display_category_results(category, df)
+                        else:
+                            # Single category
+                            category, df = next(iter(results.items()))
+                            display_category_results(category, df)
+                    except Exception as e:
+                        logger.error(f"Error displaying results: {e}")
+                        st.error("Error displaying detailed results. Data may be incomplete.")
+                
+                with main_tab3:
+                    # Export section
+                    st.markdown("### Export Your Analysis")
+                    
+                    # Summary of what will be exported
+                    with st.expander("📄 What's included in the export", expanded=True):
+                        st.markdown("""
+                        **Excel Export includes:**
+                        - **Summary Sheet**: Key metrics and top performers
+                        - **Customer Details**: Full list with rankings, tiers, and SKUs
+                        - **SKU Analysis**: Top SKUs with customer breakdown
+                        - **Combined Data**: All categories in one sheet
                         
-                        if not combined_df.empty:
-                            csv = combined_df.to_csv(index=False)
+                        **Features:**
+                        - Top 10 customers highlighted
+                        - Tier classifications (A/B/C)
+                        - Percentage calculations
+                        - SKU diversity metrics
+                        """)
+                    
+                    col1, col2, col3 = st.columns([1, 1, 1])
+                    
+                    with col1:
+                        try:
+                            # Excel download
+                            excel_output = create_excel_output(results, processing_stats)
                             st.download_button(
-                                label="📥 Download CSV Data",
-                                data=csv,
-                                file_name=f"customer_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                                mime="text/csv"
+                                label="📥 Download Full Excel Report",
+                                data=excel_output,
+                                file_name=f"customer_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                help="Complete analysis with all customer details and SKU data"
                             )
-                    except Exception as e:
-                        logger.error(f"Error creating CSV export: {e}")
-                        st.error("Error creating CSV export")
+                        except Exception as e:
+                            logger.error(f"Error creating Excel export: {e}")
+                            st.error("Error creating Excel export")
+                    
+                    with col2:
+                        try:
+                            # CSV download (combined)
+                            combined_df = pd.DataFrame()
+                            for category, df in results.items():
+                                df_copy = df.copy()
+                                df_copy['Category'] = category.title()
+                                if 'Company' in df_copy.columns:
+                                    df_copy = df_copy.rename(columns={'Company': 'Customer'})
+                                combined_df = pd.concat([combined_df, df_copy], ignore_index=True)
+                            
+                            if not combined_df.empty:
+                                csv = combined_df.to_csv(index=False)
+                                st.download_button(
+                                    label="📥 Download CSV Data",
+                                    data=csv,
+                                    file_name=f"customer_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                    mime="text/csv",
+                                    help="Simple CSV format for further analysis"
+                                )
+                        except Exception as e:
+                            logger.error(f"Error creating CSV export: {e}")
+                            st.error("Error creating CSV export")
+                    
+                    with col3:
+                        # Quick stats display
+                        st.metric("Total Records", f"{processing_stats.get('total_customers', 0):,}")
+                        st.metric("Unique SKUs", f"{len(processing_stats.get('unique_skus', [])):,}")
             
             else:
                 st.error("❌ No data could be extracted from the file")
