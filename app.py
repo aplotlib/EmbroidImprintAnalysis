@@ -19,73 +19,218 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS for minimalist design
+# Enhanced CSS for modern, professional look
 st.markdown("""
 <style>
-    /* Minimalist theme */
+    /* Modern, clean theme */
     .stApp {
-        background-color: #fafafa;
+        background: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
     }
     
-    /* Clean headers */
-    h1, h2, h3 {
-        font-weight: 300;
-        color: #333;
+    /* Typography */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-weight: 600;
+        color: #1a1a1a;
+        letter-spacing: -0.02em;
     }
     
-    /* Metric cards */
+    h1 {
+        font-size: 2.5rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Header section */
+    .main-header {
+        background: #ffffff;
+        padding: 2rem 0;
+        border-bottom: 1px solid #e5e7eb;
+        margin-bottom: 2rem;
+    }
+    
+    /* Metric cards with gradient borders */
     [data-testid="metric-container"] {
-        background-color: white;
-        border: 1px solid #e0e0e0;
-        padding: 1rem;
-        border-radius: 8px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        background: #ffffff;
+        border: 2px solid #667eea;  /* Fallback solid border */
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
     }
     
-    /* Clean buttons */
+    /* Gradient border using pseudo-element (better browser support) */
+    [data-testid="metric-container"]::after {
+        content: '';
+        position: absolute;
+        top: -2px; right: -2px; bottom: -2px; left: -2px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 12px;
+        z-index: -1;
+    }
+    
+    [data-testid="metric-container"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    }
+    
+    /* Metric styling */
+    [data-testid="metric-container"] > div {
+        font-family: 'Inter', sans-serif;
+    }
+    
+    [data-testid="metric-container"] label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    [data-testid="metric-container"] > div[data-testid="metric-container-value"] {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #1a1a1a;
+    }
+    
+    /* Enhanced buttons */
     .stButton > button {
-        background-color: #333;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
         border: none;
-        border-radius: 4px;
-        padding: 0.5rem 2rem;
-        font-weight: 400;
-        transition: all 0.3s;
+        border-radius: 8px;
+        padding: 0.75rem 2rem;
+        font-weight: 500;
+        font-family: 'Inter', sans-serif;
+        letter-spacing: -0.01em;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
     }
     
     .stButton > button:hover {
-        background-color: #555;
-        transform: translateY(-1px);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
     }
     
-    /* Tables */
+    /* File uploader */
+    .stFileUploader {
+        border: 2px dashed #e5e7eb;
+        border-radius: 12px;
+        background: #fafafa;
+        transition: all 0.3s ease;
+    }
+    
+    .stFileUploader:hover {
+        border-color: #667eea;
+        background: #f9fafb;
+    }
+    
+    /* Data tables */
     .dataframe {
-        font-size: 14px;
+        font-family: 'Inter', sans-serif;
+        font-size: 13px;
         border: none !important;
+        border-radius: 8px;
+        overflow: hidden;
     }
     
-    /* Info boxes */
-    .info-box {
-        background: #f5f5f5;
-        border-left: 4px solid #333;
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 0 4px 4px 0;
+    .dataframe thead tr th {
+        background: #f3f4f6 !important;
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 12px;
+        letter-spacing: 0.05em;
+        color: #4b5563;
+        padding: 12px !important;
     }
     
-    /* AI suggestion box */
-    .ai-suggestion {
-        background: #e3f2fd;
-        border-left: 4px solid #2196F3;
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 0 4px 4px 0;
+    .dataframe tbody tr:hover {
+        background: #f9fafb !important;
+    }
+    
+    /* Info cards */
+    .info-card {
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        margin-bottom: 1rem;
+    }
+    
+    .info-card h4 {
+        font-size: 1.125rem;
+        margin-bottom: 0.5rem;
+        color: #374151;
+    }
+    
+    /* Success/Error messages */
+    .stSuccess, .stError, .stWarning, .stInfo {
+        border-radius: 8px;
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+        border-bottom: 2px solid #e5e7eb;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        font-family: 'Inter', sans-serif;
+        font-weight: 500;
+        padding: 0.75rem 0;
+        background: none;
+        border: none;
+        color: #6b7280;
+    }
+    
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        color: #667eea;
+        border-bottom: 2px solid #667eea;
+    }
+    
+    /* Progress bar */
+    .stProgress > div > div {
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        font-family: 'Inter', sans-serif;
+        font-weight: 500;
+        background: #f9fafb;
+        border-radius: 8px;
     }
     
     /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stDeployButton {display:none;}
+    
+    /* Chart containers */
+    .chart-container {
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        margin-bottom: 1.5rem;
+    }
+    
+    /* Insight cards */
+    .insight-card {
+        background: linear-gradient(135deg, #f3f4f6 0%, #ffffff 100%);
+        border-left: 4px solid #667eea;
+        padding: 1rem 1.5rem;
+        border-radius: 0 8px 8px 0;
+        margin: 1rem 0;
+    }
+    
+    .insight-card strong {
+        color: #667eea;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -120,10 +265,13 @@ def parse_hierarchical_sheet(df, sheet_name):
             
             # Check if this is a SKU row (contains brackets)
             if '[' in first_cell and ']' in first_cell:
-                # Extract SKU code
-                sku_match = re.search(r'\[([^\]]+)\]', first_cell)
-                if sku_match:
-                    current_sku = sku_match.group(1)
+                # Extract SKU code - handle nested or malformed brackets
+                try:
+                    sku_match = re.search(r'\[([^\]]+)\]', first_cell)
+                    if sku_match:
+                        current_sku = sku_match.group(1).strip()
+                except Exception:
+                    current_sku = None
             else:
                 # This should be a customer row
                 # Remove leading spaces
@@ -256,68 +404,132 @@ def process_excel_file(file_content):
         raise Exception(f"Error reading Excel file: {str(e)}")
 
 def create_visualizations(results):
-    """Create visualizations for the analysis"""
+    """Create simplified, insightful visualizations"""
     viz = {}
     
     for category, df in results.items():
         if df is not None and not df.empty:
-            # Top 20 customers bar chart
-            top_20 = df.head(20)
+            # 1. Customer Tier Distribution (Sunburst or Donut)
+            # Make a copy to avoid modifying original
+            df_copy = df.copy()
             
-            fig_bar = go.Figure()
-            fig_bar.add_trace(go.Bar(
-                x=top_20.index,
-                y=top_20['Total Quantity'],
-                text=top_20['Total Quantity'].apply(lambda x: f'{x:,.0f}'),
-                textposition='outside',
-                marker_color='#333'
-            ))
+            # Ensure df is sorted by Total Quantity descending
+            if 'Total Quantity' in df_copy.columns:
+                df_copy = df_copy.sort_values('Total Quantity', ascending=False)
             
-            fig_bar.update_layout(
-                title=f"Top 20 {category.title()} Customers",
+            # Calculate tiers based on 80/20 rule
+            total_qty = df_copy['Total Quantity'].sum()
+            df_copy['Tier'] = 'C (Standard)'  # Default
+            
+            cumulative = 0
+            for idx, row in df_copy.iterrows():
+                cumulative += row['Total Quantity']
+                if cumulative <= total_qty * 0.2:  # Top 20% of volume
+                    df_copy.at[idx, 'Tier'] = 'A (Strategic)'
+                elif cumulative <= total_qty * 0.5:  # Next 30% of volume
+                    df_copy.at[idx, 'Tier'] = 'B (Important)'
+                else:
+                    df_copy.at[idx, 'Tier'] = 'C (Standard)'
+            
+            # Determine customer column name
+            customer_col = 'Company' if 'Company' in df_copy.columns else 'Customer'
+            
+            # Count customers per tier
+            tier_counts = df_copy.groupby('Tier').agg({
+                customer_col: 'count',
+                'Total Quantity': 'sum'
+            }).reset_index()
+            tier_counts.columns = ['Tier', 'Customer Count', 'Total Volume']
+            
+            # Ensure we have tier data before creating chart
+            if len(tier_counts) > 0:
+                # Create donut chart
+                fig_donut = go.Figure(data=[go.Pie(
+                    labels=tier_counts['Tier'],
+                    values=tier_counts['Total Volume'],
+                    hole=.7,
+                    marker_colors=['#667eea', '#a78bfa', '#e0e7ff'],
+                    textinfo='label+percent',
+                    textposition='outside',
+                    textfont=dict(size=14, family='Inter, sans-serif')
+                )])
+                
+                fig_donut.update_layout(
+                    title=dict(
+                        text=f"{category.title()} Customer Segmentation",
+                        font=dict(size=18, family='Inter, sans-serif', color='#1a1a1a')
+                    ),
+                    showlegend=False,
+                    height=400,
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(t=60, b=0, l=0, r=0),
+                    annotations=[
+                        dict(
+                            text=f"{len(df)}<br>Customers",
+                            x=0.5, y=0.5,
+                            font=dict(size=24, family='Inter, sans-serif', color='#1a1a1a', weight=600),
+                            showarrow=False
+                        )
+                    ]
+                )
+                
+                viz[f'{category}_donut'] = fig_donut
+            
+            # 2. Volume Concentration Curve (simplified Pareto)
+            fig_concentration = go.Figure()
+            
+            # Check if Cumulative % exists and has data
+            if 'Cumulative %' in df.columns and len(df) > 0:
+                # Add area chart for cumulative percentage
+                fig_concentration.add_trace(go.Scatter(
+                    x=list(range(1, min(51, len(df) + 1))),  # Top 50 customers
+                    y=df['Cumulative %'][:50],
+                    mode='lines',
+                    name='Volume Concentration',
+                    line=dict(color='#667eea', width=3),
+                    fill='tozeroy',
+                    fillcolor='rgba(102, 126, 234, 0.1)'
+                ))
+                
+                # Add 80% reference line if we have data
+                if len(df) > 0 and 'Cumulative %' in df.columns:
+                    fig_concentration.add_hline(
+                        y=80, 
+                        line_dash="dash", 
+                        line_color="#9ca3af",
+                        annotation_text="80% Volume",
+                        annotation_position="right"
+                    )
+            
+            fig_concentration.update_layout(
+                title=dict(
+                    text=f"{category.title()} Volume Concentration",
+                    font=dict(size=18, family='Inter, sans-serif', color='#1a1a1a')
+                ),
                 xaxis_title="Customer Rank",
-                yaxis_title="Total Quantity",
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                font=dict(family="Arial, sans-serif", size=12, color="#333"),
-                height=400
+                yaxis_title="Cumulative Volume %",
+                height=350,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='#f3f4f6',
+                    zeroline=False
+                ),
+                yaxis=dict(
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='#f3f4f6',
+                    zeroline=False,
+                    range=[0, 100]
+                ),
+                showlegend=False,
+                margin=dict(t=60, b=40, l=60, r=20)
             )
             
-            # Pareto chart (80/20 analysis)
-            fig_pareto = go.Figure()
-            fig_pareto.add_trace(go.Bar(
-                x=df.index[:20],
-                y=df['Total Quantity'][:20],
-                name='Quantity',
-                marker_color='lightgray',
-                yaxis='y'
-            ))
-            
-            fig_pareto.add_trace(go.Scatter(
-                x=df.index[:20],
-                y=df['Cumulative %'][:20],
-                name='Cumulative %',
-                mode='lines+markers',
-                line=dict(color='#333', width=2),
-                marker=dict(size=6),
-                yaxis='y2'
-            ))
-            
-            fig_pareto.update_layout(
-                title=f"{category.title()} Pareto Analysis (80/20 Rule)",
-                xaxis_title="Customer Rank",
-                plot_bgcolor='white',
-                paper_bgcolor='white',
-                font=dict(family="Arial, sans-serif", size=12, color="#333"),
-                height=400,
-                yaxis=dict(title='Quantity', showgrid=True, gridwidth=1, gridcolor='#f0f0f0'),
-                yaxis2=dict(title='Cumulative %', overlaying='y', side='right', range=[0, 100]),
-                showlegend=True,
-                legend=dict(x=0.7, y=0.95)
-            )
-            
-            viz[f'{category}_bar'] = fig_bar
-            viz[f'{category}_pareto'] = fig_pareto
+            viz[f'{category}_concentration'] = fig_concentration
     
     return viz
 
@@ -511,30 +723,120 @@ def create_excel_output(results, stats):
 
 def display_category_results(category, df):
     """Display results for a single category"""
-    st.markdown(f"### {category.title()} Top Customers")
+    st.markdown(f"### {category.title()} Analysis")
     
-    # Quick stats
+    # Ensure required columns exist
+    if 'Total Quantity' not in df.columns:
+        st.error("Missing 'Total Quantity' column in data")
+        return
+    
+    # Key insights cards
     col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
-        st.metric("Total Customers", len(df))
+        st.metric(
+            "Total Customers", 
+            f"{len(df):,}",
+            help="Total number of unique customers"
+        )
+    
     with col2:
-        st.metric("Total Volume", f"{df['Total Quantity'].sum():,.0f}")
+        st.metric(
+            "Total Volume", 
+            f"{df['Total Quantity'].sum():,.0f}",
+            help="Total quantity delivered"
+        )
+    
     with col3:
-        top_10_pct = (df.head(10)['Total Quantity'].sum() / df['Total Quantity'].sum() * 100)
-        st.metric("Top 10 Share", f"{top_10_pct:.1f}%")
+        total_sum = df['Total Quantity'].sum()
+        if total_sum > 0:
+            top_10_pct = (df.head(10)['Total Quantity'].sum() / total_sum * 100)
+        else:
+            top_10_pct = 0
+        st.metric(
+            "Top 10 Concentration", 
+            f"{top_10_pct:.1f}%",
+            help="Volume share of top 10 customers"
+        )
+    
     with col4:
-        if 'SKU Count' in df.columns:
-            st.metric("Unique SKUs", df['SKU Count'].sum())
+        # Find 80% concentration point
+        customers_for_80 = 0
+        if 'Cumulative %' in df.columns and len(df) > 0:
+            customers_for_80 = len(df[df['Cumulative %'] <= 80])
+        concentration_pct = (customers_for_80 / len(df) * 100) if len(df) > 0 else 0
+        st.metric(
+            "80% Volume", 
+            f"{customers_for_80} customers",
+            f"{concentration_pct:.1f}% of base",
+            help="Number of customers contributing 80% of volume"
+        )
     
-    # Top 10 Customers Highlight
+    # Insights section
+    st.markdown("#### 💡 Key Insights")
+    
+    # Calculate tier distribution with safety checks
+    total_qty = df['Total Quantity'].sum()
+    if total_qty > 0 and len(df) > 0:
+        cumulative = 0
+        a_customers = b_customers = c_customers = 0
+        
+        # Ensure df is sorted
+        df_sorted = df.sort_values('Total Quantity', ascending=False)
+        
+        for idx, row in df_sorted.iterrows():
+            cumulative += row['Total Quantity']
+            if cumulative <= total_qty * 0.2:
+                a_customers += 1
+            elif cumulative <= total_qty * 0.5:
+                b_customers += 1
+            else:
+                c_customers += 1
+    else:
+        a_customers = b_customers = c_customers = 0
+    
+    # Display insights
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="insight-card">
+            <strong>Customer Segmentation:</strong><br>
+            • Tier A (Strategic): {a_customers} customers<br>
+            • Tier B (Important): {b_customers} customers<br>
+            • Tier C (Standard): {c_customers} customers
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        # Top customer info - with safety checks
+        customer_col = 'Company' if 'Company' in df.columns else 'Customer'
+        if len(df) > 0 and total_qty > 0:
+            top_customer = df.iloc[0]
+            customer_share = (top_customer['Total Quantity'] / total_qty * 100)
+            st.markdown(f"""
+            <div class="insight-card">
+                <strong>Top Customer:</strong><br>
+                {top_customer.get(customer_col, 'N/A')}<br>
+                Volume: {top_customer['Total Quantity']:,.0f}<br>
+                Share: {customer_share:.1f}%
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class="insight-card">
+                <strong>Top Customer:</strong><br>
+                No customer data available
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Top customers table
     st.markdown("#### 🏆 Top 10 Customers")
-    top_10_df = df.head(10).copy()
     
-    # Format for display
+    top_10_df = df.head(10).copy()
     display_cols = ['Rank']
-    customer_col = 'Company' if 'Company' in top_10_df.columns else 'Customer'
     display_cols.append(customer_col)
-    display_cols.extend(['Total Quantity', 'SKUs', 'SKU Count'])
+    display_cols.extend(['Total Quantity', 'SKU Count'])
     
     # Select only available columns
     display_cols = [col for col in display_cols if col in top_10_df.columns]
@@ -543,7 +845,7 @@ def display_category_results(category, df):
     # Format numbers
     top_10_display['Total Quantity'] = top_10_display['Total Quantity'].apply(lambda x: f'{x:,.0f}')
     
-    # Display with highlighting
+    # Display with custom styling
     st.dataframe(
         top_10_display,
         use_container_width=True,
@@ -551,122 +853,96 @@ def display_category_results(category, df):
         hide_index=True
     )
     
-    # All customers table
+    # All customers expandable
     with st.expander("📊 View All Customers", expanded=False):
-        st.markdown("#### Complete Customer List")
-        
-        # Prepare display dataframe
-        all_display = df[display_cols].copy()
-        all_display['Total Quantity'] = all_display['Total Quantity'].apply(lambda x: f'{x:,.0f}')
-        
-        st.dataframe(
-            all_display,
-            use_container_width=True,
-            height=600,
-            hide_index=True
-        )
-    
-    # 80/20 Analysis
-    total_customers = len(df)
-    customers_for_80 = len(df[df['Cumulative %'] <= 80]) if 'Cumulative %' in df.columns else 0
-    
-    if customers_for_80 > 0:
-        st.info(f"💡 **80/20 Analysis**: {customers_for_80} customers ({customers_for_80/total_customers*100:.1f}%) account for 80% of volume")
-    
-    # SKU Analysis if available
-    if 'SKUs' in df.columns and df['SKUs'].notna().any():
-        with st.expander("📦 SKU Analysis", expanded=False):
-            # Extract all SKUs
-            all_skus = []
-            for sku_list in df['SKUs'].dropna():
-                if sku_list:
-                    all_skus.extend([sku.strip() for sku in sku_list.split(',')])
+        # Ensure display_cols are available in df
+        available_display_cols = [col for col in display_cols if col in df.columns]
+        if available_display_cols:
+            all_display = df[available_display_cols].copy()
+            if 'Total Quantity' in all_display.columns:
+                all_display['Total Quantity'] = all_display['Total Quantity'].apply(lambda x: f'{x:,.0f}')
             
-            if all_skus:
-                sku_counts = pd.Series(all_skus).value_counts().head(10)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("**Most Popular SKUs:**")
-                    for i, (sku, count) in enumerate(sku_counts.items(), 1):
-                        st.write(f"{i}. {sku}: {count} customers")
-                
-                with col2:
-                    # Create a simple bar chart for SKUs
-                    fig_sku = go.Figure(data=[
-                        go.Bar(
-                            x=sku_counts.values,
-                            y=sku_counts.index,
-                            orientation='h',
-                            marker_color='#333'
-                        )
-                    ])
-                    fig_sku.update_layout(
-                        title="Top SKUs by Customer Count",
-                        xaxis_title="Number of Customers",
-                        yaxis_title="SKU",
-                        height=300,
-                        margin=dict(l=0, r=0, t=30, b=0)
-                    )
-                    st.plotly_chart(fig_sku, use_container_width=True)
+            st.dataframe(
+                all_display,
+                use_container_width=True,
+                height=600,
+                hide_index=True
+            )
+        else:
+            st.warning("No data available to display")
 
 def main():
-    # Header
-    st.markdown("# 🎨 Embroid/Imprint Analysis")
-    st.markdown("Upload sales analysis files to identify top customers and SKU patterns")
+    # Modern header
+    st.markdown("""
+    <div class="main-header">
+        <h1>🎨 Customer Volume Analysis</h1>
+        <p style="font-size: 1.125rem; color: #6b7280; margin: 0;">
+            Embroidery & Imprinting Customer Insights
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # File upload section
+    # File upload section with better styling
     uploaded_file = st.file_uploader(
-        "Select Excel file",
+        "Upload Excel Analysis File",
         type=['xlsx', 'xls'],
-        help="Supports hierarchical format with SKUs and customer data"
+        help="Upload your hierarchical sales data file with SKUs and customer information"
     )
     
     if uploaded_file:
-        # Check file size
+        # File info display
+        col1, col2, col3 = st.columns(3)
+        
         file_size = uploaded_file.size / (1024 * 1024)  # Convert to MB
         
-        if file_size > 200:
-            st.error("File size exceeds 200MB limit. Please split the file or contact support.")
-            return
-        
-        # Show file info
-        col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("File Size", f"{file_size:.1f} MB")
         with col2:
             st.metric("File Type", uploaded_file.name.split('.')[-1].upper())
         with col3:
-            upload_time = datetime.now().strftime("%H:%M:%S")
-            st.metric("Uploaded At", upload_time)
+            upload_time = datetime.now().strftime("%H:%M")
+            st.metric("Upload Time", upload_time)
         
         try:
-            with st.spinner(f'Reading file... (Size: {file_size:.1f} MB)'):
+            with st.spinner('Processing your file...'):
                 # Read file content
                 file_content = uploaded_file.read()
                 
-            # Process the file
-            with st.spinner('Processing data...'):
+                # Process the file
                 start_time = time.time()
                 results, processing_stats = process_excel_file(file_content)
                 processing_time = time.time() - start_time
             
             # Display results
             if results:
-                # Summary metrics
-                st.markdown("### 📊 Analysis Summary")
+                # Success message
+                st.success(f"✅ Analysis complete in {processing_time:.1f} seconds")
                 
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Total Customers", f"{processing_stats.get('total_customers', 0):,}")
-                with col2:
-                    st.metric("Total Quantity", f"{processing_stats.get('total_quantity', 0):,.0f}")
-                with col3:
-                    st.metric("Unique SKUs", f"{len(processing_stats.get('unique_skus', [])):,}")
-                with col4:
-                    st.metric("Processing Time", f"{processing_time:.1f}s")
+                # Display visualizations first
+                st.markdown("### 📊 Customer Analytics Dashboard")
                 
-                # Category tabs
+                viz = create_visualizations(results)
+                
+                # Display charts for each category
+                for category in results.keys():
+                    if f'{category}_donut' in viz and f'{category}_concentration' in viz:
+                        st.markdown(f"#### {category.title()} Insights")
+                        
+                        col1, col2 = st.columns([1, 1])
+                        
+                        with col1:
+                            st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+                            st.plotly_chart(viz[f'{category}_donut'], use_container_width=True)
+                            st.markdown('</div>', unsafe_allow_html=True)
+                        
+                        with col2:
+                            st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+                            st.plotly_chart(viz[f'{category}_concentration'], use_container_width=True)
+                            st.markdown('</div>', unsafe_allow_html=True)
+                
+                st.markdown("---")
+                
+                # Detailed analysis section
                 if len(results) > 1:
                     tabs = st.tabs([cat.title() for cat in results.keys()])
                     
@@ -678,31 +954,19 @@ def main():
                     category, df = next(iter(results.items()))
                     display_category_results(category, df)
                 
-                # Visualizations
-                st.markdown("### 📈 Visual Analysis")
-                viz = create_visualizations(results)
+                # Export section with better styling
+                st.markdown("---")
+                st.markdown("### 💾 Export Your Analysis")
                 
-                # Display charts in columns
-                for category in results.keys():
-                    if f'{category}_bar' in viz and f'{category}_pareto' in viz:
-                        st.markdown(f"#### {category.title()} Analysis")
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.plotly_chart(viz[f'{category}_bar'], use_container_width=True)
-                        with col2:
-                            st.plotly_chart(viz[f'{category}_pareto'], use_container_width=True)
+                col1, col2, col3 = st.columns([1, 1, 2])
                 
-                # Download section
-                st.markdown("### 💾 Export Results")
-                
-                col1, col2 = st.columns(2)
                 with col1:
                     # Excel download
                     excel_output = create_excel_output(results, processing_stats)
                     st.download_button(
                         label="📥 Download Excel Report",
                         data=excel_output,
-                        file_name=f"embroid_imprint_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        file_name=f"customer_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                 
@@ -712,7 +976,6 @@ def main():
                     for category, df in results.items():
                         df_copy = df.copy()
                         df_copy['Category'] = category.title()
-                        # Standardize column names
                         if 'Company' in df_copy.columns:
                             df_copy = df_copy.rename(columns={'Company': 'Customer'})
                         combined_df = pd.concat([combined_df, df_copy], ignore_index=True)
@@ -720,94 +983,70 @@ def main():
                     if not combined_df.empty:
                         csv = combined_df.to_csv(index=False)
                         st.download_button(
-                            label="📥 Download CSV (Combined)",
+                            label="📥 Download CSV Data",
                             data=csv,
-                            file_name=f"embroid_imprint_combined_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            file_name=f"customer_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                             mime="text/csv"
                         )
             
             else:
                 st.error("❌ No data could be extracted from the file")
                 
-                # Show what was detected
-                with st.expander("🔍 File Analysis", expanded=True):
-                    try:
-                        excel_file = pd.ExcelFile(io.BytesIO(file_content))
-                        st.write(f"**Sheets found:** {excel_file.sheet_names}")
-                        
-                        st.write("\n**Expected format:**")
-                        st.markdown("""
-                        - Sheet names should contain 'Imprint' or 'Embroid'
-                        - SKUs should be in brackets like `[RHB1068GRYIMP]`
-                        - Customer names should be indented below SKUs
-                        - Last column should contain totals
-                        """)
-                        
-                        # Show sample of first sheet
-                        if excel_file.sheet_names:
-                            df_sample = pd.read_excel(excel_file, sheet_name=0, nrows=10)
-                            st.write("\n**First 10 rows of first sheet:**")
-                            st.dataframe(df_sample)
-                    except:
-                        pass
-                        
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
-            
-            # Detailed error info
-            with st.expander("🔍 Error Details & Troubleshooting", expanded=True):
-                st.code(str(e))
-                
-                st.write("**Common issues:**")
-                st.write("1. Make sure your file has the hierarchical format (SKUs with brackets, indented customers)")
-                st.write("2. Sheet names should contain 'Imprint' or 'Embroid'")
-                st.write("3. Ensure the file is not corrupted or password protected")
-                st.write("4. Check that totals are in the last column")
     
     else:
-        # Show instructions when no file is uploaded
-        st.markdown("### 📤 How to use this tool:")
+        # Welcome screen with instructions
+        st.markdown("""
+        <div class="info-card">
+            <h4>Welcome to Customer Volume Analysis</h4>
+            <p>This tool helps you analyze customer purchase patterns and identify strategic accounts.</p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        with st.expander("📋 Expected File Format", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
             st.markdown("""
-            **Hierarchical Format Requirements:**
-            - SKUs are shown with brackets like `[RHB1068GRYIMP] Product Name`
-            - Customer names are indented underneath each SKU
-            - Monthly data in columns with dates as headers
-            - Total quantity in the last column
-            - Sheet names should contain 'Imprint' or 'Embroid'
+            <div class="info-card">
+                <h4>📤 Upload</h4>
+                <p>Upload your hierarchical Excel file with SKU and customer data</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown("""
+            <div class="info-card">
+                <h4>📊 Analyze</h4>
+                <p>Automatically segment customers and identify volume concentration</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown("""
+            <div class="info-card">
+                <h4>💾 Export</h4>
+                <p>Download comprehensive Excel report with tier classifications</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with st.expander("📋 File Format Requirements", expanded=False):
+            st.markdown("""
+            **Your Excel file should have:**
+            - SKUs in brackets like `[RHB1068GRYIMP] Product Name`
+            - Customer names indented under each SKU
+            - Total quantities in the rightmost column
+            - Sheet names containing 'Imprint' or 'Embroid'
             
-            **Example Structure:**
+            **Example structure:**
             ```
-            |                                          | Aug 2024 | Sep 2024 | ... | Total |
-            |------------------------------------------|----------|----------|-----|-------|
-            | Total                                    | 100      | 150      | ... | 1000  |
-            | [SKU123] Product Name                    |          |          |     | 50    |
-            |     Customer ABC Company                 | 10       | 15       | ... | 25    |
-            |     Customer XYZ Corp                    | 5        | 20       | ... | 25    |
-            | [SKU456] Another Product                 |          |          |     | 100   |
-            |     Customer 123 Inc                     | 30       | 40       | ... | 70    |
-            |     Customer DEF Ltd                     | 20       | 10       | ... | 30    |
+            [SKU123] Product Name                     | Total
+            ------------------------------------------|-------
+                Customer ABC Company                  | 250
+                Customer XYZ Corp                     | 175
+            [SKU456] Another Product                  | 
+                Customer 123 Inc                      | 300
             ```
-            """)
-        
-        with st.expander("🎯 What This Tool Does", expanded=True):
-            st.markdown("""
-            - **Aggregates customer totals** across all SKUs they've purchased
-            - **Identifies top 10 customers** with special highlighting
-            - **Performs 80/20 analysis** to show customer concentration
-            - **Tracks SKU diversity** per customer
-            - **Exports complete data** with rankings and tier classifications
-            - **Handles large files** up to 10,000 rows per sheet
-            """)
-        
-        with st.expander("💡 Tips for Best Results", expanded=True):
-            st.markdown("""
-            - Ensure customer names are consistent (avoid variations of the same company)
-            - The total column should be the rightmost column
-            - Remove any manual subtotals or summary rows
-            - Keep the hierarchical structure intact (SKUs → Customers)
-            - For files larger than 200MB, consider splitting by date range
             """)
 
 if __name__ == "__main__":
